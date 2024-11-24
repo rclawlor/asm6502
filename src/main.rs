@@ -1,5 +1,6 @@
 // Standard library
 use std::fs;
+use std::io::{self, BufRead};
 
 // Third party
 use clap::Parser;
@@ -22,10 +23,11 @@ struct Cli {
 
 fn main() {
     let args = Cli::parse();
-    let text = fs::read_to_string(args.path).expect("Unable to read file");
+    let file = fs::File::open(args.path).expect("Unable to read file");
+    let lines = io::BufReader::new(file).lines();
 
-    let mut lexer = Lexer::new(&text);
-    let tokens = match lexer.lex() {
+    let mut lexer = Lexer::new();
+    let tokens = match lexer.lex(lines) {
         Ok(tokens) => tokens,
         Err(e) => panic!("Error lexing file: {}", e)
     };
