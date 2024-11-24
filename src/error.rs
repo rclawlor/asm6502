@@ -1,6 +1,7 @@
 #[derive(Debug)]
 pub enum LexerError {
-    InvalidNumber(String)
+    InvalidNumber(String),
+    InvalidInstruction(String)
 }
 
 impl std::fmt::Display for LexerError {
