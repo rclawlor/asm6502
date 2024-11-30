@@ -2,7 +2,7 @@
 use std::str::FromStr;
 
 // Local
-use crate::error::LexerError;
+use crate::error::OpCodeError;
 
 
 /// The 6502 Op Codes
@@ -69,7 +69,7 @@ pub enum OpCode {
 
 impl FromStr for OpCode {
 
-    type Err = LexerError;
+    type Err = OpCodeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let opcode = s.to_uppercase();
@@ -131,7 +131,7 @@ impl FromStr for OpCode {
             "TXS" => Ok(Self::TXS),
             "TYA" => Ok(Self::TYA),
             _ => Err(
-                LexerError::InvalidInstruction(
+                OpCodeError::InvalidOpCode(
                     format!("Invalid opcode '{}'", opcode)
                 )
             )

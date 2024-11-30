@@ -40,15 +40,17 @@ impl Lexer {
                 Ok(line) => line,
                 Err(e) => return Err(LexerError::FileRead(format!("Unable to read file: {}", e)))
             };
-            self.line_idx = line_idx + 1;
+            self.line_idx = line_idx;
 
             let mut line_tokens = Vec::new();
             let mut it = line.chars().enumerate().peekable();
-            while let Some((_, c)) = it.peek() {
+            while let Some((char_idx, c)) = it.peek() {
                 match c {
                     // String
                     'a'..='z' | 'A'..='Z' | '@' | '_' => {
+                        let start = char_idx.clone();
                         let text = self.get_string(&mut it)?;
+                        let length = text.len();
                         if text.ends_with(':') {
                             if text.starts_with('@') {
                                 line_tokens.push(Token::LocalLabel(text.strip_suffix(':').unwrap().to_string()))
@@ -60,7 +62,7 @@ impl Lexer {
                             let opcode = match OpCode::from_str(text.as_str()) {
                                 Ok(opcode) => opcode,
                                 Err(e) => return Err(
-                                    LexerError::InvalidInstruction(format!("{} on line {}", e.get_msg(), line_idx))
+                                    LexerError::InvalidInstruction(e.get_msg(), self.line_idx, start, length, line)
                                 )
                             };
                             line_tokens.push(Token::Instruction(opcode))
@@ -68,7 +70,7 @@ impl Lexer {
                         else {
                             return Err(
                                 LexerError::InvalidInstruction(
-                                    format!("Invalid instruction '{}' on line {}", text, line_idx)
+                                    format!("Invalid instruction '{}'", text), self.line_idx, start, length, line
                                 )
                             )
                         }
@@ -83,7 +85,7 @@ impl Lexer {
                                     '%' => Token::Constant(self.get_binary_number(&mut it)?),
                                     _ => return Err(
                                         LexerError::InvalidNumber(
-                                            format!("invalid number constant '{}' at line {}, index {}", d, self.line_idx, char_idx + 1)
+                                            format!("invalid number constant '{}'", d), self.line_idx, char_idx, 1, line
                                         )
                                     )
                             };
@@ -93,10 +95,10 @@ impl Lexer {
                     // Address
                     '$' => {
                         it.next();
-                        if let Some((_char_idx, _d)) = it.next() {
+                        if let Some((char_idx, _d)) = it.next() {
                             let address = match self.get_hex_number(&mut it) {
                                 Ok(address) => address,
-                                Err(e) => return Err(LexerError::InvalidAddress(format!("{}", e)))
+                                Err(e) => return Err(LexerError::InvalidAddress(format!("{}", e), self.line_idx, char_idx, 0, line))
                             };
                             line_tokens.push(Token::Address(address));
                         };
@@ -149,7 +151,7 @@ impl Lexer {
                         .expect("Number already checked to be within [0-9a-fA-F] range");
                 },
                 ' ' | '\n' | ',' => break,
-                _ => return Err(LexerError::InvalidNumber(format!("Invalid hex number at line {}, index {}", self.line_idx, char_idx + 1)))
+                _ => return Err(LexerError::InvalidNumber(format!("Invalid hex number"), self.line_idx, *char_idx, 1, "".to_string()))
             }
         }
 
@@ -167,7 +169,7 @@ impl Lexer {
                         .expect("Number already checked to be within [0-9] range");
                 }
                 ' ' | '\n' | ',' => break,
-                _ => return Err(LexerError::InvalidNumber(format!("Invalid decimal number at line {}, index {}", self.line_idx, char_idx + 1)))
+                _ => return Err(LexerError::InvalidNumber(format!("Invalid decimal number"), self.line_idx, *char_idx, 1, "".to_string()))
 
             }
         }
@@ -187,12 +189,12 @@ impl Lexer {
                 '2'..='9' => {
                     return Err(
                         LexerError::InvalidNumber(
-                            format!("Binary number can only contain [0-1]: found {} at line {}, index {}", c, self.line_idx, char_idx + 1)
+                            format!("Binary number can only contain [0-1]"), self.line_idx, *char_idx, 1, "".to_string()
                         )
                     )
                 }
                 ' ' | '\n' | ',' => break,
-                _ => return Err(LexerError::InvalidNumber(format!("Invalid binary number at line {}, index {}", self.line_idx, char_idx + 1)))
+                _ => return Err(LexerError::InvalidNumber(format!("Invalid binary number"), self.line_idx, *char_idx, 1, "".to_string()))
 
             }
         }
