@@ -34,7 +34,7 @@ impl Lexer {
                 Ok(line) => line,
                 Err(e) => return Err(LexerError::FileRead(format!("Unable to read file: {}", e)))
             };
-            self.line_idx = line_idx;
+            self.line_idx = line_idx + 1;
 
             let mut line_tokens = Vec::new();
             let mut it = line.chars().enumerate().peekable();
@@ -67,7 +67,7 @@ impl Lexer {
                                     '%' => Token::Constant(self.get_binary_number(&mut it)?),
                                     _ => return Err(
                                         LexerError::InvalidNumber(
-                                            format!("Invalid number constant '{}' at line {}, index {}", d, self.line_idx, char_idx)
+                                            format!("Invalid number constant '{}' at line {}, index {}", d, self.line_idx, char_idx + 1)
                                         )
                                     )
                             };
@@ -108,7 +108,7 @@ impl Lexer {
             }
         }
 
-        return Ok(text)
+        Ok(text)
     }
 
     /// Parse a hex number from the source file
@@ -122,7 +122,7 @@ impl Lexer {
                         .expect("Number already checked to be within [0-9a-fA-F] range");
                 },
                 ' ' | '\n' | ',' => break,
-                _ => return Err(LexerError::InvalidNumber(format!("Invalid hex number at line {}, index {}", self.line_idx, char_idx)))
+                _ => return Err(LexerError::InvalidNumber(format!("Invalid hex number at line {}, index {}", self.line_idx, char_idx + 1)))
             }
         }
 
@@ -140,7 +140,7 @@ impl Lexer {
                         .expect("Number already checked to be within [0-9] range");
                 }
                 ' ' | '\n' | ',' => break,
-                _ => return Err(LexerError::InvalidNumber(format!("Invalid decimal number at line {}, index {}", self.line_idx, char_idx)))
+                _ => return Err(LexerError::InvalidNumber(format!("Invalid decimal number at line {}, index {}", self.line_idx, char_idx + 1)))
 
             }
         }
@@ -160,12 +160,12 @@ impl Lexer {
                 '2'..='9' => {
                     return Err(
                         LexerError::InvalidNumber(
-                            format!("Binary number can only contain [0-1]: found {} at line {}, index {}", c, self.line_idx, char_idx)
+                            format!("Binary number can only contain [0-1]: found {} at line {}, index {}", c, self.line_idx, char_idx + 1)
                         )
                     )
                 }
                 ' ' | '\n' | ',' => break,
-                _ => return Err(LexerError::InvalidNumber(format!("Invalid binary number at line {}, index {}", self.line_idx, char_idx)))
+                _ => return Err(LexerError::InvalidNumber(format!("Invalid binary number at line {}, index {}", self.line_idx, char_idx + 1)))
 
             }
         }

@@ -32,5 +32,8 @@ fn main() {
         Err(e) => panic!("Error lexing file: {}", e)
     };
 
-    println!("Token output: {:?}", tokens);
+    println!("Token output:");
+    for (idx, token) in tokens.iter().enumerate() {
+        println!("  {} {:?}", idx + 1, token);
+    }
 }
