@@ -1,18 +1,24 @@
 // Standard library
-use std::{fs::File, io::{BufReader, Lines}, iter::{Enumerate, Peekable}, str::Chars};
-
+use std::{
+    fs::File,
+    io::{BufReader, Lines},
+    iter::{Enumerate, Peekable},
+    str::{Chars, FromStr}
+};
 
 // Local
-use crate::error::LexerError;
+use crate::{error::LexerError, instruction::OpCode};
 
 
-// The 6502 language tokens
+/// The 6502 language tokens
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub enum Token {
-    Instruction(String),
-    Address,
-    Constant(u8),
-    Label(String)
+    Instruction(OpCode),
+    Address(u16),
+    Constant(u16),
+    Label(String),
+    LocalLabel(String),
 }
 
 
@@ -41,13 +47,23 @@ impl Lexer {
             while let Some((_, c)) = it.peek() {
                 match c {
                     // String
-                    'a'..='z' | 'A'..='Z' | '_' => {
+                    'a'..='z' | 'A'..='Z' | '@' | '_' => {
                         let text = self.get_string(&mut it)?;
                         if text.ends_with(':') {
-                            line_tokens.push(Token::Label(text.strip_suffix(':').unwrap().to_string()))
+                            if text.starts_with('@') {
+                                line_tokens.push(Token::LocalLabel(text.strip_suffix(':').unwrap().to_string()))
+                            } else {
+                                line_tokens.push(Token::Label(text.strip_suffix(':').unwrap().to_string()))
+                            }
                         }
                         else if text.len() == 3 {
-                            line_tokens.push(Token::Instruction(text))
+                            let opcode = match OpCode::from_str(text.as_str()) {
+                                Ok(opcode) => opcode,
+                                Err(e) => return Err(
+                                    LexerError::InvalidInstruction(format!("{} on line {}", e.get_msg(), line_idx))
+                                )
+                            };
+                            line_tokens.push(Token::Instruction(opcode))
                         }
                         else {
                             return Err(
@@ -67,11 +83,22 @@ impl Lexer {
                                     '%' => Token::Constant(self.get_binary_number(&mut it)?),
                                     _ => return Err(
                                         LexerError::InvalidNumber(
-                                            format!("Invalid number constant '{}' at line {}, index {}", d, self.line_idx, char_idx + 1)
+                                            format!("invalid number constant '{}' at line {}, index {}", d, self.line_idx, char_idx + 1)
                                         )
                                     )
                             };
                             line_tokens.push(token);
+                        };
+                    },
+                    // Address
+                    '$' => {
+                        it.next();
+                        if let Some((_char_idx, _d)) = it.next() {
+                            let address = match self.get_hex_number(&mut it) {
+                                Ok(address) => address,
+                                Err(e) => return Err(LexerError::InvalidAddress(format!("{}", e)))
+                            };
+                            line_tokens.push(Token::Address(address));
                         };
                     },
                     // New line
@@ -95,7 +122,7 @@ impl Lexer {
         let mut text = String::new();
         while let Some((_, c)) = it.peek() {
             match c {
-                'a'..='z' | 'A'..='Z' | '_' => {
+                'a'..='z' | 'A'..='Z' | '0'..='9' | '_' => {
                     let (_, c) = it.next().unwrap();
                     text.push(c.clone());
                 },
@@ -112,13 +139,13 @@ impl Lexer {
     }
 
     /// Parse a hex number from the source file
-    fn get_hex_number(&mut self, it: &mut Peekable<Enumerate<Chars<'_>>>) -> Result<u8, LexerError> {
-        let mut number: u8 = 0;
+    fn get_hex_number(&mut self, it: &mut Peekable<Enumerate<Chars<'_>>>) -> Result<u16, LexerError> {
+        let mut number: u16 = 0;
         while let Some((char_idx, c)) = it.peek() {
             match c {
                 '0'..='9' | 'a'..='f' | 'A'..='F' => {
                     let (_, c) = it.next().unwrap();
-                    number = (number * 16) + u8::from_str_radix(&c.to_string(), 16)
+                    number = (number * 16) + u16::from_str_radix(&c.to_string(), 16)
                         .expect("Number already checked to be within [0-9a-fA-F] range");
                 },
                 ' ' | '\n' | ',' => break,
@@ -130,13 +157,13 @@ impl Lexer {
     }
 
     /// Parse a decimal number from the source file
-    fn get_decimal_number(&mut self, it: &mut Peekable<Enumerate<Chars<'_>>>) -> Result<u8, LexerError> {
-        let mut number: u8 = 0;
+    fn get_decimal_number(&mut self, it: &mut Peekable<Enumerate<Chars<'_>>>) -> Result<u16, LexerError> {
+        let mut number: u16 = 0;
         while let Some((char_idx, c)) = it.peek() {
             match c {
                 '0'..='9' => {
                     let (_, c) = it.next().unwrap();
-                    number = (number * 10) + u8::from_str_radix(&c.to_string(), 10)
+                    number = (number * 10) + u16::from_str_radix(&c.to_string(), 10)
                         .expect("Number already checked to be within [0-9] range");
                 }
                 ' ' | '\n' | ',' => break,
@@ -149,13 +176,13 @@ impl Lexer {
     }
 
     /// Parse a binary number from the source file
-    fn get_binary_number(&mut self, it: &mut Peekable<Enumerate<Chars<'_>>>) -> Result<u8, LexerError> {
-        let mut number: u8 = 0;
+    fn get_binary_number(&mut self, it: &mut Peekable<Enumerate<Chars<'_>>>) -> Result<u16, LexerError> {
+        let mut number: u16 = 0;
         while let Some((char_idx, c)) = it.peek() {
             match c {
                 '0'..='1' => {
                     let (_, c) = it.next().unwrap();
-                    number = (number * 2) + c.to_string().parse::<u8>().expect("Number already checked to be within 0-9 range");
+                    number = (number * 2) + c.to_string().parse::<u16>().expect("Number already checked to be within 0-9 range");
                 },
                 '2'..='9' => {
                     return Err(

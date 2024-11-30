@@ -7,6 +7,7 @@ use clap::Parser;
 
 // Local
 mod error;
+mod instruction;
 mod lexer;
 use lexer::Lexer;
 
@@ -29,7 +30,10 @@ fn main() {
     let mut lexer = Lexer::new();
     let tokens = match lexer.lex(lines) {
         Ok(tokens) => tokens,
-        Err(e) => panic!("Error lexing file: {}", e)
+        Err(e) => {
+            eprintln!("Error lexing file: {}", e);
+            return
+        }
     };
 
     println!("Token output:");
