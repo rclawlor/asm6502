@@ -1,8 +1,9 @@
 // Standard library
 use std::{
     fs::File,
-    io::{BufReader, Lines},
+    io::{BufReader, BufRead},
     iter::{Enumerate, Peekable},
+    path::PathBuf,
     str::{Chars, FromStr}
 };
 
@@ -15,19 +16,23 @@ use crate::{
 
 /// The 6502 language tokens
 #[allow(dead_code)]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Token {
     Register(Register),
     Instruction(OpCode),
     Address(u16),
     Constant(u16),
     Label(String),
+    StringLiteral(String),
     LocalLabel(String),
-    Preprocessor(Preprocessor)
+    Preprocessor(Preprocessor),
+    OpenGroup,
+    CloseGroup
 }
 
 
 pub struct Lexer {
+    path: PathBuf,
     tokens: Vec<Vec<Token>>,
     line_idx: usize,
     line: String
@@ -35,16 +40,31 @@ pub struct Lexer {
 
 impl Lexer {
     /// Create a `Lexer` instance
-    pub fn new() -> Self {
-        Self { tokens: Vec::new(), line_idx: 1, line: String::new() }
+    pub fn new(path: PathBuf) -> Self {
+        Self {
+            path,
+            tokens: Vec::new(),
+            line_idx: 1,
+            line: String::new()
+        }
     }
 
     /// Lex file and output tokens
-    pub fn lex(&mut self, lines: Lines<BufReader<File>>) -> Result<Vec<Vec<Token>>, LexerError> {
+    pub fn lex(&mut self) -> Result<Vec<Vec<Token>>, LexerError> {
+        let file = match File::open(&self.path) {
+            Ok(file) => file,
+            Err(_) => return Err(
+                LexerError::FileRead(format!("Unable to read file {:#?}", self.path), 0, 0, 0, self.line.clone())
+            )
+        };
+        let lines = BufReader::new(file).lines();
+
         for (line_idx, line) in lines.into_iter().enumerate() {
             let line = match line {
                 Ok(line) => line,
-                Err(e) => return Err(LexerError::FileRead(format!("Unable to read file: {}", e)))
+                Err(e) => return Err(
+                    LexerError::FileRead(format!("Unable to read file: {:#?}", e), line_idx, 0, 0, self.line.clone())
+                )
             };
             self.line_idx = line_idx;
             self.line = line.clone();
@@ -52,10 +72,9 @@ impl Lexer {
             let mut line_tokens = Vec::new();
             let mut it = line.chars().enumerate().peekable();
             while let Some((char_idx, c)) = it.peek() {
-                let start = char_idx.clone();
                 match c {
                     // String
-                    'a'..='z' | 'A'..='Z' | '@' | '_' | '.' => {
+                    'a'..='z' | 'A'..='Z' | '@' | '_' | '.' | '"' => {
                         let start = char_idx.clone();
                         let text = self.get_string(&mut it)?;
                         let length = text.len();
@@ -74,6 +93,10 @@ impl Lexer {
                                 )
                             };
                             line_tokens.push(Token::Preprocessor(preprocessor));
+                        }
+                        else if text.starts_with('"') && text.ends_with('"') {
+                            let literal = text.strip_prefix('"').unwrap().strip_suffix('"').unwrap();
+                            line_tokens.push(Token::StringLiteral(literal.to_string()));
                         }
                         else if text.len() == 3 {
                             let opcode = match OpCode::from_str(text.as_str()) {
@@ -125,6 +148,15 @@ impl Lexer {
                             line_tokens.push(Token::Address(address));
                         };
                     },
+                    // Open group
+                    '(' => {
+                        it.next();
+                        line_tokens.push(Token::OpenGroup);
+                    },
+                    ')' => {
+                        it.next();
+                        line_tokens.push(Token::CloseGroup);
+                    },
                     // New line
                     '\n' => break,
                     // Whitespace
@@ -142,6 +174,25 @@ impl Lexer {
                 }
             }
 
+            // Lex imported files and add to token list
+            if line_tokens.starts_with(&[Token::Preprocessor(Preprocessor::INCSRC)]) {
+                match &line_tokens[line_tokens.len() - 1] {
+                    Token::StringLiteral(s) => {
+                        let path = match PathBuf::from_str(s) {
+                            Ok(path) => path,
+                            Err(_) => return Err(
+                                LexerError::FileRead(format!("Unable to read import '{}'", s), self.line_idx, 0, self.line.len(), line)
+                            )
+                        };
+                        let mut lexer = Self::new(path);
+                        let subtokens = lexer.lex()?;
+                        for token in subtokens.into_iter() {
+                            self.tokens.push(token);
+                        }
+                    },
+                    _ => return Err(LexerError::InvalidPreprocessor("Expected source file".to_string(), self.line_idx, 0, 1, line))
+                };
+            }
             self.tokens.push(line_tokens);
         }
 
@@ -151,9 +202,10 @@ impl Lexer {
     /// Parse a string from the source file
     fn get_string(&mut self, it: &mut Peekable<Enumerate<Chars<'_>>>) -> Result<String, LexerError> {
         let mut text = String::new();
-        while let Some((char_idx, c)) = it.peek() {
-            match (char_idx, c) {
-                (_, 'a'..='z' | 'A'..='Z' | '0'..='9' | '_') => {
+        let mut string_idx = 0;
+        while let Some((_, c)) = it.peek() {
+            match (string_idx, c) {
+                (_, 'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '/' | '.') => {
                     let (_, c) = it.next().unwrap();
                     text.push(c.clone());
                 },
@@ -162,14 +214,19 @@ impl Lexer {
                     text.push(c.clone());
                     break
                 },
-                (0, '.') => {
+                (0, '"') => {
                     let (_, c) = it.next().unwrap();
                     text.push(c.clone());
                 },
+                (_, '"') => {
+                    let (_, c) = it.next().unwrap();
+                    text.push(c.clone());
+                    break;
+                },
                 _ => break,
             }
+            string_idx += 1;
         }
-
         Ok(text)
     }
 

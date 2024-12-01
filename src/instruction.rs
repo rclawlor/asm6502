@@ -6,7 +6,7 @@ use crate::error::{OpCodeError, PreprocessorError, RegisterError};
 
 
 /// The 6502 registers
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Register {
     A,
     X,
@@ -32,7 +32,7 @@ impl FromStr for Register {
 
 
 /// The 6502 Op Codes
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum OpCode {
     ADC,
     AND,
@@ -167,7 +167,7 @@ impl FromStr for OpCode {
 
 
 /// Preprocessing instructions
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Preprocessor {
     /// Include another source file
     INCSRC,

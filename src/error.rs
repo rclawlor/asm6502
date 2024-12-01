@@ -98,21 +98,21 @@ pub enum LexerError {
     InvalidAddress(String, usize, usize, usize, String),
     /// Used when unable to read a file
     ///
-    /// (msg)
-    FileRead(String)
+    /// (msg, row, col, length, line)
+    FileRead(String, usize, usize, usize, String)
 }
 
 impl LexerError {
     /// Extract message from error type
     pub fn get_msg(&self) -> String {
         let s = match self {
-            Self::InvalidNumber(s, _, _, _, _) => s,
-            Self::InvalidRegister(s, _, _, _, _) => s,
-            Self::InvalidCharacter(s, _, _, _, _) => s,
-            Self::InvalidInstruction(s, _, _, _, _) => s,
-            Self::InvalidPreprocessor(s, _, _, _, _) => s,
-            Self::InvalidAddress(s, _, _, _, _) => s,
-            Self::FileRead(s) => s
+            Self::InvalidNumber(s, ..) => s,
+            Self::InvalidRegister(s, ..) => s,
+            Self::InvalidCharacter(s, ..) => s,
+            Self::InvalidInstruction(s, ..) => s,
+            Self::InvalidPreprocessor(s, ..) => s,
+            Self::InvalidAddress(s, ..) => s,
+            Self::FileRead(s, ..) => s
         };
 
         s.to_string()
@@ -121,13 +121,13 @@ impl LexerError {
     /// Extract row index from error type
     pub fn get_row(&self) -> usize {
         let l = match self {
-            Self::InvalidNumber(_, l, _, _, _) => l,
-            Self::InvalidRegister(_, l, _, _, _) => l,
-            Self::InvalidCharacter(_, l, _, _, _) => l,
-            Self::InvalidInstruction(_, l, _, _, _) => l,
-            Self::InvalidPreprocessor(_, l, _, _, _) => l,
-            Self::InvalidAddress(_, l, _, _, _) => l,
-            Self::FileRead(_) => &0,
+            Self::InvalidNumber(_, l, ..) => l,
+            Self::InvalidRegister(_, l, ..) => l,
+            Self::InvalidCharacter(_, l, ..) => l,
+            Self::InvalidInstruction(_, l, ..) => l,
+            Self::InvalidPreprocessor(_, l, ..) => l,
+            Self::InvalidAddress(_, l, ..) => l,
+            Self::FileRead(_, l, ..) => l,
         };
 
         *l
@@ -136,13 +136,13 @@ impl LexerError {
     /// Extract start index from error type
     pub fn get_start(&self) -> usize {
         let s = match self {
-            Self::InvalidNumber(_, _, s, _, _) => s,
-            Self::InvalidRegister(_, _, s, _, _) => s,
-            Self::InvalidCharacter(_, _, s, _, _) => s,
-            Self::InvalidInstruction(_, _, s, _, _) => s,
-            Self::InvalidPreprocessor(_, _, s, _, _) => s,
-            Self::InvalidAddress(_, _, s, _, _) => s,
-            Self::FileRead(_) => &0,
+            Self::InvalidNumber(_, _, s, ..) => s,
+            Self::InvalidRegister(_, _, s, ..) => s,
+            Self::InvalidCharacter(_, _, s, ..) => s,
+            Self::InvalidInstruction(_, _, s, ..) => s,
+            Self::InvalidPreprocessor(_, _, s, ..) => s,
+            Self::InvalidAddress(_, _, s, ..) => s,
+            Self::FileRead(_, _, s, ..) => s,
         };
 
         *s
@@ -151,13 +151,13 @@ impl LexerError {
     /// Extract length from error type
     pub fn get_length(&self) -> usize {
         let l = match self {
-            Self::InvalidNumber(_, _, _, l, _) => l,
-            Self::InvalidRegister(_, _, _, l, _) => l,
-            Self::InvalidCharacter(_, _, _, l, _) => l,
-            Self::InvalidInstruction(_, _, _, l, _) => l,
-            Self::InvalidPreprocessor(_, _, _, l, _) => l,
-            Self::InvalidAddress(_, _, _, l, _) => l,
-            Self::FileRead(_) => &0,
+            Self::InvalidNumber(.., l, _) => l,
+            Self::InvalidRegister(.., l, _) => l,
+            Self::InvalidCharacter(.., l, _) => l,
+            Self::InvalidInstruction(.., l, _) => l,
+            Self::InvalidPreprocessor(.., l, _) => l,
+            Self::InvalidAddress(.., l, _) => l,
+            Self::FileRead(.., l, _) => l,
         };
 
         *l
@@ -166,13 +166,13 @@ impl LexerError {
     /// Extract line from error type
     pub fn get_line(&self) -> String {
         let l = match self {
-            Self::InvalidNumber(_, _, _, _, l) => l,
-            Self::InvalidRegister(_, _, _, _, l) => l,
-            Self::InvalidCharacter(_, _, _, _, l) => l,
-            Self::InvalidInstruction(_, _, _, _, l) => l,
-            Self::InvalidPreprocessor(_, _, _, _, l) => l,
-            Self::InvalidAddress(_, _, _, _, l) => l,
-            Self::FileRead(_) => "",
+            Self::InvalidNumber(.., l) => l,
+            Self::InvalidRegister(.., l) => l,
+            Self::InvalidCharacter(.., l) => l,
+            Self::InvalidInstruction(.., l) => l,
+            Self::InvalidPreprocessor(.., l) => l,
+            Self::InvalidAddress(.., l) => l,
+            Self::FileRead(.., l) => l,
         };
 
         l.to_string()

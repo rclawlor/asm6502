@@ -1,7 +1,3 @@
-// Standard library
-use std::fs;
-use std::io::{self, BufRead};
-
 // Third party
 use clap::Parser;
 
@@ -16,7 +12,6 @@ use lexer::Lexer;
 use crate::error::ErrorLevel;
 
 
-/// Search for a pattern in a file and display the lines that contain it.
 #[derive(Parser)]
 #[command(version, about)]
 struct Cli {
@@ -28,14 +23,12 @@ struct Cli {
 
 fn main() {
     let args = Cli::parse();
-    let file = fs::File::open(args.path).expect("Unable to read file");
-    let lines = io::BufReader::new(file).lines();
 
-    let mut lexer = Lexer::new();
-    let tokens = match lexer.lex(lines) {
+    // Parse inital file
+    let mut lexer = Lexer::new(args.path);
+    let tokens = match lexer.lex() {
         Ok(tokens) => tokens,
         Err(e) => {
-            // eprintln!("Error lexing file: {}", e);
             let error = context_error(
                 ErrorLevel::Error,
                 &e.get_msg(),
