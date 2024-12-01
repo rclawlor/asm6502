@@ -2,4 +2,4 @@
 /target
 
 # Example 6502 files
-*.asm
+/examples

@@ -2,7 +2,7 @@
 use std::str::FromStr;
 
 // Local
-use crate::error::OpCodeError;
+use crate::error::{OpCodeError, PreprocessorError};
 
 
 /// The 6502 Op Codes
@@ -137,5 +137,43 @@ impl FromStr for OpCode {
             )
         }
     }
+}
 
+
+/// Preprocessing instructions
+#[derive(Clone, Debug)]
+pub enum Preprocessor {
+    /// Include another source file
+    INCSRC,
+    /// Include a binary file
+    INCBIN,
+    /// Store specified bytes
+    DSB,
+    /// Assemble code if defined
+    IFDEF,
+    /// Assemble code if not defined
+    IFNDEF,
+    /// Finish if statement
+    ENDIF,
+}
+
+impl FromStr for Preprocessor {
+    type Err = PreprocessorError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let preprocessor = s.to_uppercase();
+        match preprocessor.as_str() {
+            "INCSRC" => Ok(Preprocessor::INCSRC),
+            "INCBIN" => Ok(Preprocessor::INCBIN),
+            "DSB" => Ok(Preprocessor::DSB),
+            "IFDEF" => Ok(Preprocessor::IFDEF),
+            "IFNDEF" => Ok(Preprocessor::IFNDEF),
+            "ENDIF" => Ok(Preprocessor::ENDIF),
+            _ => Err(
+                PreprocessorError::InvalidPreprocessor(
+                    format!("Invalid preprocessor '{}'", preprocessor)
+                )
+            )
+        }
+    }
 }

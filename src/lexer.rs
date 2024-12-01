@@ -7,7 +7,10 @@ use std::{
 };
 
 // Local
-use crate::{error::LexerError, instruction::OpCode};
+use crate::{
+    error::LexerError,
+    instruction::{OpCode, Preprocessor}
+};
 
 
 /// The 6502 language tokens
@@ -19,6 +22,7 @@ pub enum Token {
     Constant(u16),
     Label(String),
     LocalLabel(String),
+    Preprocessor(Preprocessor)
 }
 
 
@@ -49,7 +53,7 @@ impl Lexer {
             while let Some((char_idx, c)) = it.peek() {
                 match c {
                     // String
-                    'a'..='z' | 'A'..='Z' | '@' | '_' => {
+                    'a'..='z' | 'A'..='Z' | '@' | '_' | '.' => {
                         let start = char_idx.clone();
                         let text = self.get_string(&mut it)?;
                         let length = text.len();
@@ -60,6 +64,15 @@ impl Lexer {
                                 line_tokens.push(Token::Label(text.strip_suffix(':').unwrap().to_string()))
                             }
                         }
+                        else if text.starts_with('.') {
+                            let preprocessor = match Preprocessor::from_str(text.strip_prefix('.').unwrap()) {
+                                Ok(preprocessor) => preprocessor,
+                                Err(e) => return Err(
+                                    LexerError::InvalidPreprocessor(e.get_msg(), self.line_idx, start, length, line)
+                                )
+                            };
+                            line_tokens.push(Token::Preprocessor(preprocessor));
+                        }
                         else if text.len() == 3 {
                             let opcode = match OpCode::from_str(text.as_str()) {
                                 Ok(opcode) => opcode,
@@ -67,14 +80,10 @@ impl Lexer {
                                     LexerError::InvalidInstruction(e.get_msg(), self.line_idx, start, length, line)
                                 )
                             };
-                            line_tokens.push(Token::Instruction(opcode))
+                            line_tokens.push(Token::Instruction(opcode));
                         }
                         else {
-                            return Err(
-                                LexerError::InvalidInstruction(
-                                    format!("Invalid instruction '{}'", text), self.line_idx, start, length, line
-                                )
-                            )
+                            line_tokens.push(Token::Label(text.to_string()))
                         }
                     }
                     // Constant
@@ -100,7 +109,7 @@ impl Lexer {
                         if let Some((char_idx, _d)) = it.next() {
                             let address = match self.get_hex_number(&mut it) {
                                 Ok(address) => address,
-                                Err(e) => return Err(LexerError::InvalidAddress(format!("{}", e), self.line_idx, char_idx, 0, line))
+                                Err(e) => return Err(LexerError::InvalidAddress(format!("{}", e), self.line_idx, char_idx, 1, line))
                             };
                             line_tokens.push(Token::Address(address));
                         };
@@ -111,7 +120,14 @@ impl Lexer {
                     ' ' | '\t' => {it.next();},
                     // Separator
                     ',' => {it.next();},
-                    _ => {}
+                    // Comment
+                    ';' => break,
+                    // Raise error on unrecognised character
+                    other => return Err(
+                        LexerError::InvalidCharacter(
+                            format!("Invalid character '{}'", other), self.line_idx, *char_idx, 1, line
+                        )
+                    )
                 }
             }
 
@@ -124,18 +140,22 @@ impl Lexer {
     /// Parse a string from the source file
     fn get_string(&mut self, it: &mut Peekable<Enumerate<Chars<'_>>>) -> Result<String, LexerError> {
         let mut text = String::new();
-        while let Some((_, c)) = it.peek() {
-            match c {
-                'a'..='z' | 'A'..='Z' | '0'..='9' | '_' => {
+        while let Some((char_idx, c)) = it.peek() {
+            match (char_idx, c) {
+                (_, 'a'..='z' | 'A'..='Z' | '0'..='9' | '_') => {
                     let (_, c) = it.next().unwrap();
                     text.push(c.clone());
                 },
-                ':' => {
+                (_, ':') => {
                     let (_, c) = it.next().unwrap();
                     text.push(c.clone());
                     break
-                }
-                _ => break
+                },
+                (0, '.') => {
+                    let (_, c) = it.next().unwrap();
+                    text.push(c.clone());
+                },
+                _ => break,
             }
         }
 

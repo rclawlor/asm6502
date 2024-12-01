@@ -34,19 +34,50 @@ impl OpCodeError {
 }
 
 
+#[derive(Debug)]
+pub enum PreprocessorError {
+    InvalidPreprocessor(String),
+}
+
+impl PreprocessorError {
+    /// Extract message from error type
+    pub fn get_msg(&self) -> String {
+        let s = match self {
+            Self::InvalidPreprocessor(s) => s
+        };
+
+        s.to_string()
+    }
+}
+
+
 /// Errors generated during lexing
-///
-/// Each error contains the following:
-/// 1. A helpful message
-/// 2. The line number the error occured on
-/// 3. The start index of the error
-/// 4. The length of the error for line highlighting
 #[allow(dead_code)]
 #[derive(Debug)]
 pub enum LexerError {
+    /// Used when an invalid number is parsed
+    ///
+    /// (msg, row, col, length, line)
     InvalidNumber(String, usize, usize, usize, String),
+    /// Used when an invalid character is encountered
+    ///
+    /// (msg, row, col, length, line)
+    InvalidCharacter(String, usize, usize, usize, String),
+    /// Used when an invalid instruction is encountered
+    ///
+    /// (msg, row, col, length, line)
     InvalidInstruction(String, usize, usize, usize, String),
+    /// Used when an invalid preprocessor is encountered
+    ///
+    /// (msg, row, col, length, line)
+    InvalidPreprocessor(String, usize, usize, usize, String),
+    /// Used when an invalid address is encountered
+    ///
+    /// (msg, row, col, length, line)
     InvalidAddress(String, usize, usize, usize, String),
+    /// Used when unable to read a file
+    ///
+    /// (msg)
     FileRead(String)
 }
 
@@ -55,7 +86,9 @@ impl LexerError {
     pub fn get_msg(&self) -> String {
         let s = match self {
             Self::InvalidNumber(s, _, _, _, _) => s,
+            Self::InvalidCharacter(s, _, _, _, _) => s,
             Self::InvalidInstruction(s, _, _, _, _) => s,
+            Self::InvalidPreprocessor(s, _, _, _, _) => s,
             Self::InvalidAddress(s, _, _, _, _) => s,
             Self::FileRead(s) => s
         };
@@ -67,7 +100,9 @@ impl LexerError {
     pub fn get_row(&self) -> usize {
         let l = match self {
             Self::InvalidNumber(_, l, _, _, _) => l,
+            Self::InvalidCharacter(_, l, _, _, _) => l,
             Self::InvalidInstruction(_, l, _, _, _) => l,
+            Self::InvalidPreprocessor(_, l, _, _, _) => l,
             Self::InvalidAddress(_, l, _, _, _) => l,
             Self::FileRead(_) => &0,
         };
@@ -79,7 +114,9 @@ impl LexerError {
     pub fn get_start(&self) -> usize {
         let s = match self {
             Self::InvalidNumber(_, _, s, _, _) => s,
+            Self::InvalidCharacter(_, _, s, _, _) => s,
             Self::InvalidInstruction(_, _, s, _, _) => s,
+            Self::InvalidPreprocessor(_, _, s, _, _) => s,
             Self::InvalidAddress(_, _, s, _, _) => s,
             Self::FileRead(_) => &0,
         };
@@ -91,7 +128,9 @@ impl LexerError {
     pub fn get_length(&self) -> usize {
         let l = match self {
             Self::InvalidNumber(_, _, _, l, _) => l,
+            Self::InvalidCharacter(_, _, _, l, _) => l,
             Self::InvalidInstruction(_, _, _, l, _) => l,
+            Self::InvalidPreprocessor(_, _, _, l, _) => l,
             Self::InvalidAddress(_, _, _, l, _) => l,
             Self::FileRead(_) => &0,
         };
@@ -103,7 +142,9 @@ impl LexerError {
     pub fn get_line(&self) -> String {
         let l = match self {
             Self::InvalidNumber(_, _, _, _, l) => l,
+            Self::InvalidCharacter(_, _, _, _, l) => l,
             Self::InvalidInstruction(_, _, _, _, l) => l,
+            Self::InvalidPreprocessor(_, _, _, _, l) => l,
             Self::InvalidAddress(_, _, _, _, l) => l,
             Self::FileRead(_) => "",
         };
