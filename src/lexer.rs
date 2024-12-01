@@ -9,7 +9,7 @@ use std::{
 // Local
 use crate::{
     error::LexerError,
-    instruction::{OpCode, Preprocessor}
+    instruction::{OpCode, Preprocessor, Register}
 };
 
 
@@ -17,6 +17,7 @@ use crate::{
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub enum Token {
+    Register(Register),
     Instruction(OpCode),
     Address(u16),
     Constant(u16),
@@ -51,6 +52,7 @@ impl Lexer {
             let mut line_tokens = Vec::new();
             let mut it = line.chars().enumerate().peekable();
             while let Some((char_idx, c)) = it.peek() {
+                let start = char_idx.clone();
                 match c {
                     // String
                     'a'..='z' | 'A'..='Z' | '@' | '_' | '.' => {
@@ -81,6 +83,15 @@ impl Lexer {
                                 )
                             };
                             line_tokens.push(Token::Instruction(opcode));
+                        }
+                        else if text == "A" || text == "X" || text == "Y" {
+                            let register = match Register::from_str(text.as_str()) {
+                                Ok(register) => register,
+                                Err(e) => return Err(
+                                    LexerError::InvalidRegister(e.get_msg(), self.line_idx, start, 1, line)
+                                )
+                            };
+                            line_tokens.push(Token::Register(register));
                         }
                         else {
                             line_tokens.push(Token::Label(text.to_string()))

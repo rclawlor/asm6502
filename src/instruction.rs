@@ -2,7 +2,33 @@
 use std::str::FromStr;
 
 // Local
-use crate::error::{OpCodeError, PreprocessorError};
+use crate::error::{OpCodeError, PreprocessorError, RegisterError};
+
+
+/// The 6502 registers
+#[derive(Clone, Debug)]
+pub enum Register {
+    A,
+    X,
+    Y
+}
+
+impl FromStr for Register {
+    type Err = RegisterError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "A" => Ok(Self::A),
+            "X" => Ok(Self::X),
+            "Y" => Ok(Self::Y),
+            _ => Err(
+                RegisterError::InvalidRegister(
+                    format!("Invalid register '{}'", s)
+                )
+            )
+        }
+    }
+}
 
 
 /// The 6502 Op Codes

@@ -18,6 +18,23 @@ impl std::fmt::Display for ErrorLevel {
 
 
 #[derive(Debug)]
+pub enum RegisterError {
+    InvalidRegister(String),
+}
+
+impl RegisterError {
+    /// Extract message from error type
+    pub fn get_msg(&self) -> String {
+        let s = match self {
+            Self::InvalidRegister(s) => s
+        };
+
+        s.to_string()
+    }
+}
+
+
+#[derive(Debug)]
 pub enum OpCodeError {
     InvalidOpCode(String),
 }
@@ -59,6 +76,10 @@ pub enum LexerError {
     ///
     /// (msg, row, col, length, line)
     InvalidNumber(String, usize, usize, usize, String),
+    /// Used when an invalid register is parsed
+    ///
+    /// (msg, row, col, length, line)
+    InvalidRegister(String, usize, usize, usize, String),
     /// Used when an invalid character is encountered
     ///
     /// (msg, row, col, length, line)
@@ -86,6 +107,7 @@ impl LexerError {
     pub fn get_msg(&self) -> String {
         let s = match self {
             Self::InvalidNumber(s, _, _, _, _) => s,
+            Self::InvalidRegister(s, _, _, _, _) => s,
             Self::InvalidCharacter(s, _, _, _, _) => s,
             Self::InvalidInstruction(s, _, _, _, _) => s,
             Self::InvalidPreprocessor(s, _, _, _, _) => s,
@@ -100,6 +122,7 @@ impl LexerError {
     pub fn get_row(&self) -> usize {
         let l = match self {
             Self::InvalidNumber(_, l, _, _, _) => l,
+            Self::InvalidRegister(_, l, _, _, _) => l,
             Self::InvalidCharacter(_, l, _, _, _) => l,
             Self::InvalidInstruction(_, l, _, _, _) => l,
             Self::InvalidPreprocessor(_, l, _, _, _) => l,
@@ -114,6 +137,7 @@ impl LexerError {
     pub fn get_start(&self) -> usize {
         let s = match self {
             Self::InvalidNumber(_, _, s, _, _) => s,
+            Self::InvalidRegister(_, _, s, _, _) => s,
             Self::InvalidCharacter(_, _, s, _, _) => s,
             Self::InvalidInstruction(_, _, s, _, _) => s,
             Self::InvalidPreprocessor(_, _, s, _, _) => s,
@@ -128,6 +152,7 @@ impl LexerError {
     pub fn get_length(&self) -> usize {
         let l = match self {
             Self::InvalidNumber(_, _, _, l, _) => l,
+            Self::InvalidRegister(_, _, _, l, _) => l,
             Self::InvalidCharacter(_, _, _, l, _) => l,
             Self::InvalidInstruction(_, _, _, l, _) => l,
             Self::InvalidPreprocessor(_, _, _, l, _) => l,
@@ -142,6 +167,7 @@ impl LexerError {
     pub fn get_line(&self) -> String {
         let l = match self {
             Self::InvalidNumber(_, _, _, _, l) => l,
+            Self::InvalidRegister(_, _, _, _, l) => l,
             Self::InvalidCharacter(_, _, _, _, l) => l,
             Self::InvalidInstruction(_, _, _, _, l) => l,
             Self::InvalidPreprocessor(_, _, _, _, l) => l,
