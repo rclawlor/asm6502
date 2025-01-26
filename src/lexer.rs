@@ -18,13 +18,21 @@ use crate::{
 #[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum Token {
+    /// A, X or Y register
     Register(Register),
+    /// Instruction
     Instruction(OpCode),
-    Address(u16),
+    /// Memory address
+    Address(u16), 
+    /// Number constant
     Constant(u16),
+    /// Label representing constant or function
     Label(String),
+    /// String
     StringLiteral(String),
+    /// Label in local scope
     LocalLabel(String),
+    /// Preprocessing instruction
     Preprocessor(Preprocessor),
     OpenGroup,
     CloseGroup
@@ -98,7 +106,7 @@ impl Lexer {
                             let literal = text.strip_prefix('"').unwrap().strip_suffix('"').unwrap();
                             line_tokens.push(Token::StringLiteral(literal.to_string()));
                         }
-                        else if text.len() == 3 {
+                        else if text.len() == 3 && line_tokens.len() == 0 {
                             let opcode = match OpCode::from_str(text.as_str()) {
                                 Ok(opcode) => opcode,
                                 Err(e) => return Err(

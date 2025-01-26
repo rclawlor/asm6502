@@ -1,7 +1,7 @@
-// Third party
 use clap::Parser;
 
 // Local
+mod assembler;
 mod error;
 mod instruction;
 mod lexer;
@@ -9,7 +9,10 @@ mod lexer;
 use error::context_error;
 use lexer::Lexer;
 
-use crate::error::ErrorLevel;
+use crate::{
+    assembler::Assembler,
+    error::ErrorLevel
+};
 
 
 #[derive(Parser)]
@@ -47,4 +50,7 @@ fn main() {
     for (idx, token) in tokens.iter().enumerate() {
         println!("  {} {:?}", idx + 1, token);
     }
+
+    let mut assembler = Assembler::new();
+    assembler.assemble(tokens);
 }

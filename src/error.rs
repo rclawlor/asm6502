@@ -186,6 +186,24 @@ impl std::fmt::Display for LexerError {
 }
 
 
+#[derive(Debug)]
+pub enum AssemblerError {
+    /// Used when an instruction has an invalid addressing mode
+    InvalidAddressingMode(String),
+    /// Used when a preprocessor has incorrect arguments
+    InvalidPreprocessorArguments(String)
+}
+
+impl AssemblerError {
+}
+
+impl std::fmt::Display for AssemblerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+
 /// Format string with errors in context
 ///
 /// # Example

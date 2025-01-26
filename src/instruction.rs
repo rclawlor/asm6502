@@ -31,6 +31,20 @@ impl FromStr for Register {
 }
 
 
+/// The 6502 addressing modes
+#[derive(Debug)]
+pub enum AddressingMode {
+    Immediate,
+    ZeroPage,
+    ZeroPageX,
+    Absolute,
+    AbsoluteX,
+    AbsoluteY,
+    IndirectX,
+    IndirectY
+}
+
+
 /// The 6502 Op Codes
 #[derive(Clone, Debug, PartialEq)]
 pub enum OpCode {
@@ -175,6 +189,8 @@ pub enum Preprocessor {
     INCBIN,
     /// Store specified bytes
     DSB,
+    /// Define symbol
+    DEFINE,
     /// Assemble code if defined
     IFDEF,
     /// Assemble code if not defined
@@ -192,6 +208,7 @@ impl FromStr for Preprocessor {
             "INCSRC" => Ok(Preprocessor::INCSRC),
             "INCBIN" => Ok(Preprocessor::INCBIN),
             "DSB" => Ok(Preprocessor::DSB),
+            "DEFINE" => Ok(Preprocessor::DEFINE),
             "IFDEF" => Ok(Preprocessor::IFDEF),
             "IFNDEF" => Ok(Preprocessor::IFNDEF),
             "ENDIF" => Ok(Preprocessor::ENDIF),
