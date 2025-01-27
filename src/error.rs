@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 // Third party
 use colored::Colorize;
 
@@ -104,7 +106,7 @@ pub enum LexerError {
 
 impl LexerError {
     /// Extract message from error type
-    pub fn get_msg(&self) -> String {
+    fn get_msg(&self) -> String {
         let s = match self {
             Self::InvalidNumber(s, ..) => s,
             Self::InvalidRegister(s, ..) => s,
@@ -119,7 +121,7 @@ impl LexerError {
     }
 
     /// Extract row index from error type
-    pub fn get_row(&self) -> usize {
+    fn get_row(&self) -> usize {
         let l = match self {
             Self::InvalidNumber(_, l, ..) => l,
             Self::InvalidRegister(_, l, ..) => l,
@@ -134,7 +136,7 @@ impl LexerError {
     }
 
     /// Extract start index from error type
-    pub fn get_start(&self) -> usize {
+    fn get_start(&self) -> usize {
         let s = match self {
             Self::InvalidNumber(_, _, s, ..) => s,
             Self::InvalidRegister(_, _, s, ..) => s,
@@ -149,7 +151,7 @@ impl LexerError {
     }
 
     /// Extract length from error type
-    pub fn get_length(&self) -> usize {
+    fn get_length(&self) -> usize {
         let l = match self {
             Self::InvalidNumber(.., l, _) => l,
             Self::InvalidRegister(.., l, _) => l,
@@ -164,7 +166,7 @@ impl LexerError {
     }
 
     /// Extract line from error type
-    pub fn get_line(&self) -> String {
+    fn get_line(&self) -> String {
         let l = match self {
             Self::InvalidNumber(.., l) => l,
             Self::InvalidRegister(.., l) => l,
@@ -176,6 +178,38 @@ impl LexerError {
         };
 
         l.to_string()
+    }
+
+    /// Generate 'pretty' error message output
+    pub fn generate_context_error(&self, level: ErrorLevel) -> String {
+        let msg = self.get_msg();
+        let line_idx = self.get_row() + 1;
+        let char_idx = self.get_start() + 1;
+        let length = self.get_length();
+        let line = self.get_line();
+        let filename = "main.asm";
+
+        let idx_digits = usize::try_from(line_idx.checked_ilog10().unwrap_or(0) + 1).unwrap_or(4);
+        let idx_spacing = " ".repeat(idx_digits + 1);
+        let underline = format!("{}{}", " ".repeat(char_idx), "^".repeat(length));
+
+        format!(
+            "{level}: {msg}\n\
+            \x20 --> {filename}:{row}:{col}\n\
+            \x20 {spacing}|\n\
+            \x20 {row:<width$}| {line}\n\
+            \x20 {spacing}|{underline}\n\
+            \x20 {spacing}|",
+            level=level,
+            msg=msg,
+            filename=filename,
+            row=line_idx,
+            col=char_idx,
+            spacing=idx_spacing,
+            width=idx_digits + 1,
+            line=line,
+            underline=underline
+        )
     }
 }
 
@@ -189,9 +223,13 @@ impl std::fmt::Display for LexerError {
 #[derive(Debug)]
 pub enum AssemblerError {
     /// Used when an instruction has an invalid addressing mode
-    InvalidAddressingMode(String),
+    ///
+    /// (msg, row, file)
+    InvalidAddressingMode(String, usize, PathBuf),
     /// Used when a preprocessor has incorrect arguments
-    InvalidPreprocessorArguments(String)
+    ///
+    /// (msg, row, file)
+    InvalidPreprocessorArguments(String, usize, PathBuf)
 }
 
 impl AssemblerError {

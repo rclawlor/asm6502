@@ -32,15 +32,7 @@ fn main() {
     let tokens = match lexer.lex() {
         Ok(tokens) => tokens,
         Err(e) => {
-            let error = context_error(
-                ErrorLevel::Error,
-                &e.get_msg(),
-                "main.asm",
-                e.get_row() + 1,
-                e.get_start() + 1,
-                e.get_length(),
-                &e.get_line()
-            );
+            let error = e.generate_context_error(ErrorLevel::Error);
             println!("{}", error);
             return
         }

@@ -39,9 +39,42 @@ pub enum Token {
 }
 
 
+/// Parsed tokens on a line
+#[derive(Clone, Debug)]
+pub struct LineTokens {
+    tokens: Vec<Token>,
+    line_idx: usize,
+    path: PathBuf
+}
+
+
+impl LineTokens {
+    /// Create a 'LineTokens' instance
+    pub fn new(
+        tokens: Vec<Token>,
+        line_idx: usize,
+        path: PathBuf
+    ) -> Self {
+        LineTokens { tokens, line_idx, path }
+    }
+
+    pub fn tokens(&self) -> &Vec<Token> {
+        &self.tokens
+    }
+
+    pub fn line_idx(&self) -> usize {
+        self.line_idx
+    }
+
+    pub fn path(&self) -> PathBuf {
+        self.path.clone()
+    }
+}
+
+
 pub struct Lexer {
     path: PathBuf,
-    tokens: Vec<Vec<Token>>,
+    tokens: Vec<LineTokens>,
     line_idx: usize,
     line: String
 }
@@ -58,7 +91,7 @@ impl Lexer {
     }
 
     /// Lex file and output tokens
-    pub fn lex(&mut self) -> Result<Vec<Vec<Token>>, LexerError> {
+    pub fn lex(&mut self) -> Result<Vec<LineTokens>, LexerError> {
         let file = match File::open(&self.path) {
             Ok(file) => file,
             Err(_) => return Err(
@@ -194,14 +227,14 @@ impl Lexer {
                         };
                         let mut lexer = Self::new(path);
                         let subtokens = lexer.lex()?;
-                        for token in subtokens.into_iter() {
-                            self.tokens.push(token);
+                        for tokens in subtokens.into_iter() {
+                            self.tokens.push(tokens);
                         }
                     },
                     _ => return Err(LexerError::InvalidPreprocessor("Expected source file".to_string(), self.line_idx, 0, 1, line))
                 };
             }
-            self.tokens.push(line_tokens);
+            self.tokens.push(LineTokens::new(line_tokens, line_idx, self.path.clone()));
         }
 
         Ok(self.tokens.clone())

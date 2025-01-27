@@ -5,9 +5,9 @@ use crate::{
     instruction::{
         AddressingMode, Preprocessor, Register::{A, X, Y}
     },
-    lexer::Token::{
+    lexer::{LineTokens, Token::{
         self, Address, CloseGroup, Constant, Instruction, OpenGroup, Register
-    }
+    }}
 };
 
 pub struct Assembler {
@@ -21,39 +21,43 @@ impl Assembler {
     }
 
     /// Assemble tokens into binary file
-    pub fn assemble(&mut self, tokens: Vec<Vec<Token>>) -> Result<(), AssemblerError> {
-        for token in tokens {
-            if token.len() == 0 {
+    pub fn assemble(&mut self, tokens: Vec<LineTokens>) -> Result<(), AssemblerError> {
+        for line in tokens {
+            if line.tokens().len() == 0 {
                 continue;
             } 
 
-            match &token[0] {
+            match &line.tokens()[0] {
                 Token::Preprocessor(Preprocessor::DEFINE) => {
-                    let n_tokens = token.len();
+                    let n_tokens = line.tokens().len();
                     if n_tokens < 2 {
                         return Err(
                             AssemblerError::InvalidPreprocessorArguments(
                                 String::from(
                                     "The .DEFINE preprocessor expects a variable name and optional value"
-                                )
+                                ),
+                                line.line_idx(),
+                                line.path()
                             )
                         )
                     }
 
-                    match &token[1] {
+                    match &line.tokens()[1] {
                         Token::Label(label) => {
                             if n_tokens == 2 {
                                 self.symbol_table.insert(label.clone(), Token::Constant(1));
                             }
                             else if n_tokens == 3 {
-                                self.symbol_table.insert(label.clone(), token[2].clone());
+                                self.symbol_table.insert(label.clone(), line.tokens()[2].clone());
                             }
                         }
                         _ => return Err(
                             AssemblerError::InvalidPreprocessorArguments(
                                 String::from(
                                     "The .DEFINE preprocessor needs a variable name as it's first parameter"
-                                )
+                                ),
+                                line.line_idx(),
+                                line.path()
                             )
                         )
                     }
@@ -61,9 +65,9 @@ impl Assembler {
                 _ => ()
             }
 
-            match &token[0] {
+            match &line.tokens()[0] {
                 Token::Instruction(opcode) => {
-                    let opcode = self.get_opcode(&token);
+                    let opcode = self.get_opcode(&line);
                     println!("{:?}", opcode);
                 },
                 _ => ()
@@ -73,17 +77,23 @@ impl Assembler {
         Ok(())
     }
 
-    fn get_opcode(&self, tokens: &Vec<Token>) -> Result<AddressingMode, AssemblerError> {
+    fn get_opcode(&self, line: &LineTokens) -> Result<AddressingMode, AssemblerError> {
         let mut token_match = Vec::new();
-        for token in tokens {
+        for token in line.tokens() {
             match token {
                 Token::Label(label) => token_match.push(
                     match self.symbol_table.get(label) {
                         Some(value) => value,
-                        None => return Err(AssemblerError::InvalidAddressingMode("".to_string()))
+                        None => return Err(
+                            AssemblerError::InvalidAddressingMode(
+                                format!("Could not find definition for symbol '{}'", label),
+                                line.line_idx(),
+                                line.path()
+                            )
+                        )
                     }
                 ),
-                other => token_match.push(other)
+                other => token_match.push(&other)
             }
         }
         let addressing_mode = match &token_match[..] {
@@ -95,7 +105,13 @@ impl Assembler {
             [Instruction(_), Address(_), Register(Y)] => AddressingMode::AbsoluteY,
             [Instruction(_), OpenGroup, Address(a), Register(X), CloseGroup] if *a <= 0xFF => AddressingMode::IndirectX,
             [Instruction(_), OpenGroup, Address(a), CloseGroup, Register(Y)] if *a <= 0xFF => AddressingMode::IndirectX,
-            _ => return Err(AssemblerError::InvalidAddressingMode(format!("{:?}", tokens)))
+            _ => return Err(
+                AssemblerError::InvalidAddressingMode(
+                    format!("Invalid addressing mode for '{:?}'", &token_match[0]),
+                    line.line_idx(),
+                    line.path()
+                )
+            )
         };
 
         Ok(addressing_mode)
