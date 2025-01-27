@@ -3,21 +3,25 @@ use std::collections::HashMap;
 use crate::{
     error::AssemblerError,
     instruction::{
-        AddressingMode, Preprocessor, Register::{A, X, Y}
+        AddressingMode, Preprocessor,
+        Register::{A, X, Y},
     },
-    lexer::{LineTokens, Token::{
-        self, Address, CloseGroup, Constant, Instruction, OpenGroup, Register
-    }}
+    lexer::{
+        LineTokens,
+        Token::{self, Address, CloseGroup, Constant, Instruction, OpenGroup, Register},
+    },
 };
 
 pub struct Assembler {
-    symbol_table: HashMap<String, Token>
+    symbol_table: HashMap<String, Token>,
 }
 
 impl Assembler {
     /// Create new `Assembler` instance
     pub fn new() -> Self {
-        Self { symbol_table: HashMap::new() }
+        Self {
+            symbol_table: HashMap::new(),
+        }
     }
 
     /// Assemble tokens into binary file
@@ -25,7 +29,7 @@ impl Assembler {
         for line in tokens {
             if line.tokens().len() == 0 {
                 continue;
-            } 
+            }
 
             match &line.tokens()[0] {
                 Token::Preprocessor(Preprocessor::DEFINE) => {
@@ -39,7 +43,7 @@ impl Assembler {
                                 line.line_idx(),
                                 line.path()
                             )
-                        )
+                        );
                     }
 
                     match &line.tokens()[1] {
@@ -62,14 +66,14 @@ impl Assembler {
                         )
                     }
                 }
-                _ => ()
+                _ => (),
             }
 
             match &line.tokens()[0] {
                 Token::Instruction(opcode) => {
                     let opcode = self.get_opcode(&line)?;
-                },
-                _ => ()
+                }
+                _ => (),
             };
         }
 
@@ -80,19 +84,17 @@ impl Assembler {
         let mut token_match = Vec::new();
         for token in line.tokens() {
             match token {
-                Token::Label(label) => token_match.push(
-                    match self.symbol_table.get(label) {
-                        Some(value) => value,
-                        None => return Err(
-                            AssemblerError::InvalidAddressingMode(
-                                format!("Could not find definition for symbol '{}'", label),
-                                line.line_idx(),
-                                line.path()
-                            )
-                        )
+                Token::Label(label) => token_match.push(match self.symbol_table.get(label) {
+                    Some(value) => value,
+                    None => {
+                        return Err(AssemblerError::InvalidAddressingMode(
+                            format!("Could not find definition for symbol '{}'", label),
+                            line.line_idx(),
+                            line.path(),
+                        ))
                     }
-                ),
-                other => token_match.push(&other)
+                }),
+                other => token_match.push(&other),
             }
         }
         let addressing_mode = match &token_match[..] {
@@ -102,15 +104,19 @@ impl Assembler {
             [Instruction(_), Address(_)] => AddressingMode::Absolute,
             [Instruction(_), Address(_), Register(X)] => AddressingMode::AbsoluteX,
             [Instruction(_), Address(_), Register(Y)] => AddressingMode::AbsoluteY,
-            [Instruction(_), OpenGroup, Address(a), Register(X), CloseGroup] if *a <= 0xFF => AddressingMode::IndirectX,
-            [Instruction(_), OpenGroup, Address(a), CloseGroup, Register(Y)] if *a <= 0xFF => AddressingMode::IndirectX,
-            _ => return Err(
-                AssemblerError::InvalidAddressingMode(
+            [Instruction(_), OpenGroup, Address(a), Register(X), CloseGroup] if *a <= 0xFF => {
+                AddressingMode::IndirectX
+            }
+            [Instruction(_), OpenGroup, Address(a), CloseGroup, Register(Y)] if *a <= 0xFF => {
+                AddressingMode::IndirectX
+            }
+            _ => {
+                return Err(AssemblerError::InvalidAddressingMode(
                     format!("Invalid addressing mode for '{:?}'", &token_match[0]),
                     line.line_idx(),
-                    line.path()
-                )
-            )
+                    line.path(),
+                ))
+            }
         };
 
         Ok(addressing_mode)

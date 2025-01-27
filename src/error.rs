@@ -11,18 +11,17 @@ use colored::Colorize;
 /// Used to indiate severity of error
 pub enum ErrorLevel {
     Warning,
-    Error
+    Error,
 }
 
 impl std::fmt::Display for ErrorLevel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Warning => write!(f, "{}", "warning".yellow()),
-            Self::Error => write!(f, "{}", "error".red())
+            Self::Error => write!(f, "{}", "error".red()),
         }
     }
 }
-
 
 #[derive(Debug)]
 pub enum RegisterError {
@@ -33,13 +32,12 @@ impl RegisterError {
     /// Extract message from error type
     pub fn get_msg(&self) -> String {
         let s = match self {
-            Self::InvalidRegister(s) => s
+            Self::InvalidRegister(s) => s,
         };
 
         s.to_string()
     }
 }
-
 
 #[derive(Debug)]
 pub enum OpCodeError {
@@ -50,13 +48,12 @@ impl OpCodeError {
     /// Extract message from error type
     pub fn get_msg(&self) -> String {
         let s = match self {
-            Self::InvalidOpCode(s) => s
+            Self::InvalidOpCode(s) => s,
         };
 
         s.to_string()
     }
 }
-
 
 #[derive(Debug)]
 pub enum PreprocessorError {
@@ -67,13 +64,12 @@ impl PreprocessorError {
     /// Extract message from error type
     pub fn get_msg(&self) -> String {
         let s = match self {
-            Self::InvalidPreprocessor(s) => s
+            Self::InvalidPreprocessor(s) => s,
         };
 
         s.to_string()
     }
 }
-
 
 /// Errors generated during lexing
 #[allow(dead_code)]
@@ -106,7 +102,7 @@ pub enum LexerError {
     /// Used when unable to read a file
     ///
     /// (msg, row, col, length, line, path)
-    FileRead(String, usize, usize, usize, String, PathBuf)
+    FileRead(String, usize, usize, usize, String, PathBuf),
 }
 
 impl LexerError {
@@ -119,7 +115,7 @@ impl LexerError {
             Self::InvalidInstruction(s, ..) => s,
             Self::InvalidPreprocessor(s, ..) => s,
             Self::InvalidAddress(s, ..) => s,
-            Self::FileRead(s, ..) => s
+            Self::FileRead(s, ..) => s,
         };
 
         s.to_string()
@@ -229,15 +225,15 @@ impl LexerError {
             \x20 {row:<width$}| {line}\n\
             \x20 {spacing}|{underline}\n\
             \x20 {spacing}|",
-            level=level,
-            msg=msg,
-            path=path,
-            row=line_idx,
-            col=char_idx,
-            spacing=idx_spacing,
-            width=idx_digits + 1,
-            line=line,
-            underline=underline
+            level = level,
+            msg = msg,
+            path = path,
+            row = line_idx,
+            col = char_idx,
+            spacing = idx_spacing,
+            width = idx_digits + 1,
+            line = line,
+            underline = underline
         )
     }
 }
@@ -248,7 +244,6 @@ impl std::fmt::Display for LexerError {
     }
 }
 
-
 #[derive(Debug)]
 pub enum AssemblerError {
     /// Used when an instruction has an invalid addressing mode
@@ -258,7 +253,7 @@ pub enum AssemblerError {
     /// Used when a preprocessor has incorrect arguments
     ///
     /// (msg, row, file)
-    InvalidPreprocessorArguments(String, usize, PathBuf)
+    InvalidPreprocessorArguments(String, usize, PathBuf),
 }
 
 impl AssemblerError {
@@ -294,12 +289,14 @@ impl AssemblerError {
 
     /// Extract line from error type
     fn get_line(&self) -> String {
-        let file = File::open(
-            &self.get_path()
-        ).expect("File already opened during lexing");
+        let file = File::open(&self.get_path()).expect("File already opened during lexing");
 
         let lines = BufReader::new(file).lines();
-        return lines.into_iter().nth(self.get_row()).unwrap().expect("Line exists")
+        return lines
+            .into_iter()
+            .nth(self.get_row())
+            .unwrap()
+            .expect("Line exists");
     }
 
     /// Format string with errors in context
@@ -331,14 +328,14 @@ impl AssemblerError {
             \x20 {row:<width$}| {line}\n\
             \x20 {spacing}|{underline}\n\
             \x20 {spacing}|",
-            level=level,
-            msg=msg,
-            path=path,
-            row=line_idx,
-            spacing=idx_spacing,
-            width=idx_digits + 1,
-            line=line,
-            underline=underline
+            level = level,
+            msg = msg,
+            path = path,
+            row = line_idx,
+            spacing = idx_spacing,
+            width = idx_digits + 1,
+            line = line,
+            underline = underline
         )
     }
 }
@@ -348,7 +345,6 @@ impl std::fmt::Display for AssemblerError {
         write!(f, "{:?}", self)
     }
 }
-
 
 /// Format string with errors in context
 ///
@@ -367,7 +363,7 @@ pub fn context_error(
     line_idx: usize,
     char_idx: usize,
     length: usize,
-    line: &str
+    line: &str,
 ) -> String {
     let idx_digits = usize::try_from(line_idx.checked_ilog10().unwrap_or(0) + 1).unwrap_or(4);
     let idx_spacing = " ".repeat(idx_digits + 1);
@@ -380,14 +376,14 @@ pub fn context_error(
         \x20 {row:<width$}| {line}\n\
         \x20 {spacing}|{underline}\n\
         \x20 {spacing}|",
-        level=level,
-        msg=msg,
-        filename=filename,
-        row=line_idx,
-        col=char_idx,
-        spacing=idx_spacing,
-        width=idx_digits + 1,
-        line=line,
-        underline=underline
+        level = level,
+        msg = msg,
+        filename = filename,
+        row = line_idx,
+        col = char_idx,
+        spacing = idx_spacing,
+        width = idx_digits + 1,
+        line = line,
+        underline = underline
     )
 }

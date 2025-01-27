@@ -4,13 +4,12 @@ use std::str::FromStr;
 // Local
 use crate::error::{OpCodeError, PreprocessorError, RegisterError};
 
-
 /// The 6502 registers
 #[derive(Clone, Debug, PartialEq)]
 pub enum Register {
     A,
     X,
-    Y
+    Y,
 }
 
 impl FromStr for Register {
@@ -21,15 +20,13 @@ impl FromStr for Register {
             "A" => Ok(Self::A),
             "X" => Ok(Self::X),
             "Y" => Ok(Self::Y),
-            _ => Err(
-                RegisterError::InvalidRegister(
-                    format!("Invalid register '{}'", s)
-                )
-            )
+            _ => Err(RegisterError::InvalidRegister(format!(
+                "Invalid register '{}'",
+                s
+            ))),
         }
     }
 }
-
 
 /// The 6502 addressing modes
 #[derive(Debug)]
@@ -41,9 +38,8 @@ pub enum AddressingMode {
     AbsoluteX,
     AbsoluteY,
     IndirectX,
-    IndirectY
+    IndirectY,
 }
-
 
 /// The 6502 Op Codes
 #[derive(Clone, Debug, PartialEq)]
@@ -106,9 +102,7 @@ pub enum OpCode {
     TYA,
 }
 
-
 impl FromStr for OpCode {
-
     type Err = OpCodeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -170,15 +164,13 @@ impl FromStr for OpCode {
             "TXA" => Ok(Self::TXA),
             "TXS" => Ok(Self::TXS),
             "TYA" => Ok(Self::TYA),
-            _ => Err(
-                OpCodeError::InvalidOpCode(
-                    format!("Invalid opcode '{}'", opcode)
-                )
-            )
+            _ => Err(OpCodeError::InvalidOpCode(format!(
+                "Invalid opcode '{}'",
+                opcode
+            ))),
         }
     }
 }
-
 
 /// Preprocessing instructions
 #[derive(Clone, Debug, PartialEq)]
@@ -212,11 +204,10 @@ impl FromStr for Preprocessor {
             "IFDEF" => Ok(Preprocessor::IFDEF),
             "IFNDEF" => Ok(Preprocessor::IFNDEF),
             "ENDIF" => Ok(Preprocessor::ENDIF),
-            _ => Err(
-                PreprocessorError::InvalidPreprocessor(
-                    format!("Invalid preprocessor '{}'", preprocessor)
-                )
-            )
+            _ => Err(PreprocessorError::InvalidPreprocessor(format!(
+                "Invalid preprocessor '{}'",
+                preprocessor
+            ))),
         }
     }
 }

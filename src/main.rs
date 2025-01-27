@@ -9,20 +9,15 @@ mod lexer;
 use error::context_error;
 use lexer::Lexer;
 
-use crate::{
-    assembler::Assembler,
-    error::ErrorLevel
-};
-
+use crate::{assembler::Assembler, error::ErrorLevel};
 
 #[derive(Parser)]
 #[command(version, about)]
 struct Cli {
     /// The path to the file to read
     #[arg(short, long)]
-    path: std::path::PathBuf
+    path: std::path::PathBuf,
 }
-
 
 fn main() {
     let args = Cli::parse();
@@ -34,7 +29,7 @@ fn main() {
         Err(e) => {
             let error = e.generate_context_error(ErrorLevel::Error);
             println!("{}", error);
-            return
+            return;
         }
     };
 
@@ -44,7 +39,7 @@ fn main() {
         Err(e) => {
             let error = e.generate_context_error(ErrorLevel::Error);
             println!("{}", error);
-            return
+            return;
         }
     };
 }
