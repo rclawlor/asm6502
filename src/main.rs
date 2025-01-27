@@ -38,11 +38,13 @@ fn main() {
         }
     };
 
-    println!("Token output:");
-    for (idx, token) in tokens.iter().enumerate() {
-        println!("  {} {:?}", idx + 1, token);
-    }
-
     let mut assembler = Assembler::new();
-    assembler.assemble(tokens);
+    let hex = match assembler.assemble(tokens) {
+        Ok(hex) => hex,
+        Err(e) => {
+            let error = e.generate_context_error(ErrorLevel::Error);
+            println!("{}", error);
+            return
+        }
+    };
 }

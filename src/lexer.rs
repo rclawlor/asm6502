@@ -95,7 +95,9 @@ impl Lexer {
         let file = match File::open(&self.path) {
             Ok(file) => file,
             Err(_) => return Err(
-                LexerError::FileRead(format!("Unable to read file {:#?}", self.path), 0, 0, 0, self.line.clone())
+                LexerError::FileRead(
+                    format!("Unable to read file {:#?}", self.path), 0, 0, 0, self.line.clone(), self.path.clone()
+                )
             )
         };
         let lines = BufReader::new(file).lines();
@@ -104,7 +106,9 @@ impl Lexer {
             let line = match line {
                 Ok(line) => line,
                 Err(e) => return Err(
-                    LexerError::FileRead(format!("Unable to read file: {:#?}", e), line_idx, 0, 0, self.line.clone())
+                    LexerError::FileRead(
+                        format!("Unable to read file: {:#?}", e), line_idx, 0, 0, self.line.clone(), self.path.clone()
+                    )
                 )
             };
             self.line_idx = line_idx;
@@ -130,7 +134,9 @@ impl Lexer {
                             let preprocessor = match Preprocessor::from_str(text.strip_prefix('.').unwrap()) {
                                 Ok(preprocessor) => preprocessor,
                                 Err(e) => return Err(
-                                    LexerError::InvalidPreprocessor(e.get_msg(), self.line_idx, start, length, line)
+                                    LexerError::InvalidPreprocessor(
+                                        e.get_msg(), self.line_idx, start, length, line, self.path.clone()
+                                    )
                                 )
                             };
                             line_tokens.push(Token::Preprocessor(preprocessor));
@@ -143,7 +149,9 @@ impl Lexer {
                             let opcode = match OpCode::from_str(text.as_str()) {
                                 Ok(opcode) => opcode,
                                 Err(e) => return Err(
-                                    LexerError::InvalidInstruction(e.get_msg(), self.line_idx, start, length, line)
+                                    LexerError::InvalidInstruction(
+                                        e.get_msg(), self.line_idx, start, length, line, self.path.clone()
+                                    )
                                 )
                             };
                             line_tokens.push(Token::Instruction(opcode));
@@ -152,7 +160,9 @@ impl Lexer {
                             let register = match Register::from_str(text.as_str()) {
                                 Ok(register) => register,
                                 Err(e) => return Err(
-                                    LexerError::InvalidRegister(e.get_msg(), self.line_idx, start, 1, line)
+                                    LexerError::InvalidRegister(
+                                        e.get_msg(), self.line_idx, start, 1, line, self.path.clone()
+                                    )
                                 )
                             };
                             line_tokens.push(Token::Register(register));
@@ -171,7 +181,12 @@ impl Lexer {
                                     '%' => Token::Constant(self.get_binary_number(&mut it)?),
                                     _ => return Err(
                                         LexerError::InvalidNumber(
-                                            format!("invalid number constant '{}'", d), self.line_idx, char_idx, 1, line
+                                            format!("invalid number constant '{}'", d),
+                                            self.line_idx,
+                                            char_idx,
+                                            1,
+                                            line,
+                                            self.path.clone()
                                         )
                                     )
                             };
@@ -184,7 +199,11 @@ impl Lexer {
                         if let Some((char_idx, _d)) = it.next() {
                             let address = match self.get_hex_number(&mut it) {
                                 Ok(address) => address,
-                                Err(e) => return Err(LexerError::InvalidAddress(format!("{}", e), self.line_idx, char_idx, 1, line))
+                                Err(e) => return Err(
+                                    LexerError::InvalidAddress(
+                                        format!("{}", e), self.line_idx, char_idx, 1, line, self.path.clone()
+                                    )
+                                )
                             };
                             line_tokens.push(Token::Address(address));
                         };
@@ -209,7 +228,7 @@ impl Lexer {
                     // Raise error on unrecognised character
                     other => return Err(
                         LexerError::InvalidCharacter(
-                            format!("Invalid character '{}'", other), self.line_idx, *char_idx, 1, line
+                            format!("Invalid character '{}'", other), self.line_idx, *char_idx, 1, line, self.path.clone()
                         )
                     )
                 }
@@ -222,7 +241,9 @@ impl Lexer {
                         let path = match PathBuf::from_str(s) {
                             Ok(path) => path,
                             Err(_) => return Err(
-                                LexerError::FileRead(format!("Unable to read import '{}'", s), self.line_idx, 0, self.line.len(), line)
+                                LexerError::FileRead(
+                                    format!("Unable to read import '{}'", s), self.line_idx, 0, self.line.len(), line, self.path.clone()
+                                )
                             )
                         };
                         let mut lexer = Self::new(path);
@@ -231,7 +252,11 @@ impl Lexer {
                             self.tokens.push(tokens);
                         }
                     },
-                    _ => return Err(LexerError::InvalidPreprocessor("Expected source file".to_string(), self.line_idx, 0, 1, line))
+                    _ => return Err(
+                        LexerError::InvalidPreprocessor(
+                            "Expected source file".to_string(), self.line_idx, 0, 1, line, self.path.clone()
+                        )
+                    )
                 };
             }
             self.tokens.push(LineTokens::new(line_tokens, line_idx, self.path.clone()));
@@ -296,7 +321,7 @@ impl Lexer {
                 },
                 _ => return Err(
                     LexerError::InvalidNumber(
-                        format!("Invalid hex number"), self.line_idx, start_idx, number_len, self.line.clone()
+                        format!("Invalid hex number"), self.line_idx, start_idx, number_len, self.line.clone(), self.path.clone()
                     )
                 )
             }
@@ -330,7 +355,7 @@ impl Lexer {
                 },
                 _ => return Err(
                     LexerError::InvalidNumber(
-                        format!("Invalid decimal number"), self.line_idx, start_idx, number_len, self.line.clone()
+                        format!("Invalid decimal number"), self.line_idx, start_idx, number_len, self.line.clone(), self.path.clone()
                     )
                 )
             }
@@ -364,7 +389,7 @@ impl Lexer {
                 },
                 _ => return Err(
                     LexerError::InvalidNumber(
-                        format!("Invalid binary number"), self.line_idx, start_idx, number_len, self.line.clone()
+                        format!("Invalid binary number"), self.line_idx, start_idx, number_len, self.line.clone(), self.path.clone()
                     )
                 )
             }

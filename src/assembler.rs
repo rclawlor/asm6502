@@ -67,8 +67,7 @@ impl Assembler {
 
             match &line.tokens()[0] {
                 Token::Instruction(opcode) => {
-                    let opcode = self.get_opcode(&line);
-                    println!("{:?}", opcode);
+                    let opcode = self.get_opcode(&line)?;
                 },
                 _ => ()
             };
