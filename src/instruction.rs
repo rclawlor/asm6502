@@ -39,6 +39,22 @@ pub enum AddressingMode {
     AbsoluteY,
     IndirectX,
     IndirectY,
+    Implied
+}
+
+/// Used to generate the match arm for an 'implied'
+/// addressing mode
+///
+/// # Arguments
+/// `addr` the hex opcode
+/// `mode` the addressing mode
+macro_rules! implied {
+    ($addr:expr, $mode:ident) => {
+        match $mode {
+            AddressingMode::Implied => $addr,
+            _ => return Err(OpCodeError::InvalidAddressingMode($mode))
+        }
+    };
 }
 
 /// The 6502 Op Codes
@@ -100,6 +116,71 @@ pub enum OpCode {
     TXA,
     TXS,
     TYA,
+}
+
+impl OpCode {
+    pub fn get_hex(&self, addressing_mode: AddressingMode) -> Result<u8, OpCodeError> {
+        let hex = match self {
+            Self::ADC => 0,
+            Self::AND => 0,
+            Self::ASL => 0,
+            Self::BCC => 0,
+            Self::BCS => 0,
+            Self::BEQ => 0,
+            Self::BIT => 0,
+            Self::BMI => 0,
+            Self::BNE => 0,
+            Self::BPL => 0,
+            Self::BRK => implied!(0x00, addressing_mode),
+            Self::BVC => 0,
+            Self::BVS => 0,
+            Self::CLC => implied!(0x18, addressing_mode),
+            Self::CLD => implied!(0xd8, addressing_mode),
+            Self::CLI => implied!(0x58, addressing_mode),
+            Self::CLV => implied!(0xb8, addressing_mode),
+            Self::CMP => 0,
+            Self::CPX => 0,
+            Self::CPY => 0,
+            Self::DEC => 0,
+            Self::DEX => implied!(0xca, addressing_mode),
+            Self::DEY => implied!(0x88, addressing_mode),
+            Self::EOR => 0,
+            Self::INC => 0,
+            Self::INX => implied!(0xe8, addressing_mode),
+            Self::INY => implied!(0xc8, addressing_mode),
+            Self::JMP => 0,
+            Self::JSR => 0,
+            Self::LDA => 0,
+            Self::LDX => 0,
+            Self::LDY => 0,
+            Self::LSR => 0,
+            Self::NOP => implied!(0xea, addressing_mode),
+            Self::ORA => 0,
+            Self::PHA => implied!(0x48, addressing_mode),
+            Self::PHP => implied!(0x08, addressing_mode),
+            Self::PLA => implied!(0x68, addressing_mode),
+            Self::PLP => implied!(0x28, addressing_mode),
+            Self::ROL => 0,
+            Self::ROR => 0,
+            Self::RTI => implied!(0x40, addressing_mode),
+            Self::RTS => implied!(0x60, addressing_mode),
+            Self::SBC => 0,
+            Self::SEC => implied!(0x38, addressing_mode),
+            Self::SED => implied!(0xf8, addressing_mode),
+            Self::SEI => implied!(0x78, addressing_mode),
+            Self::STA => 0,
+            Self::STX => 0,
+            Self::STY => 0,
+            Self::TAX => implied!(0xaa, addressing_mode),
+            Self::TAY => implied!(0xa8, addressing_mode),
+            Self::TSX => implied!(0xba, addressing_mode),
+            Self::TXA => implied!(0x8a, addressing_mode),
+            Self::TXS => implied!(0x9a, addressing_mode),
+            Self::TYA => implied!(0x98, addressing_mode),
+        };
+
+        Ok(hex)
+    }
 }
 
 impl FromStr for OpCode {

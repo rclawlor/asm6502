@@ -6,10 +6,7 @@ mod error;
 mod instruction;
 mod lexer;
 
-use error::context_error;
-use lexer::Lexer;
-
-use crate::{assembler::Assembler, error::ErrorLevel};
+use crate::{assembler::Assembler, error::ErrorLevel, lexer::Lexer};
 
 #[derive(Parser)]
 #[command(version, about)]

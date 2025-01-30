@@ -72,6 +72,7 @@ impl Assembler {
             match &line.tokens()[0] {
                 Token::Instruction(opcode) => {
                     let opcode = self.get_opcode(&line)?;
+                    println!("{}", opcode);
                 }
                 _ => (),
             };
@@ -80,7 +81,7 @@ impl Assembler {
         Ok(())
     }
 
-    fn get_opcode(&self, line: &LineTokens) -> Result<AddressingMode, AssemblerError> {
+    fn get_opcode(&self, line: &LineTokens) -> Result<u8, AssemblerError> {
         let mut token_match = Vec::new();
         for token in line.tokens() {
             match token {
@@ -97,18 +98,19 @@ impl Assembler {
                 other => token_match.push(&other),
             }
         }
-        let addressing_mode = match &token_match[..] {
-            [Instruction(_), Constant(_)] => AddressingMode::Immediate,
-            [Instruction(_), Address(a)] if *a <= 0xFF => AddressingMode::ZeroPage,
-            [Instruction(_), Address(a), Register(X)] if *a <= 0xFF => AddressingMode::ZeroPageX,
-            [Instruction(_), Address(_)] => AddressingMode::Absolute,
-            [Instruction(_), Address(_), Register(X)] => AddressingMode::AbsoluteX,
-            [Instruction(_), Address(_), Register(Y)] => AddressingMode::AbsoluteY,
-            [Instruction(_), OpenGroup, Address(a), Register(X), CloseGroup] if *a <= 0xFF => {
-                AddressingMode::IndirectX
+        let (instr, addressing_mode) = match &token_match[..] {
+            [Instruction(instr)] => (instr, AddressingMode::Implied),
+            [Instruction(instr), Constant(_)] => (instr, AddressingMode::Immediate),
+            [Instruction(instr), Address(a)] if *a <= 0xFF => (instr, AddressingMode::ZeroPage),
+            [Instruction(instr), Address(a), Register(X)] if *a <= 0xFF => (instr, AddressingMode::ZeroPageX),
+            [Instruction(instr), Address(_)] => (instr, AddressingMode::Absolute),
+            [Instruction(instr), Address(_), Register(X)] => (instr, AddressingMode::AbsoluteX),
+            [Instruction(instr), Address(_), Register(Y)] => (instr, AddressingMode::AbsoluteY),
+            [Instruction(instr), OpenGroup, Address(a), Register(X), CloseGroup] if *a <= 0xFF => {
+                (instr, AddressingMode::IndirectX)
             }
-            [Instruction(_), OpenGroup, Address(a), CloseGroup, Register(Y)] if *a <= 0xFF => {
-                AddressingMode::IndirectX
+            [Instruction(instr), OpenGroup, Address(a), CloseGroup, Register(Y)] if *a <= 0xFF => {
+                (instr, AddressingMode::IndirectX)
             }
             _ => {
                 return Err(AssemblerError::InvalidAddressingMode(
@@ -119,6 +121,15 @@ impl Assembler {
             }
         };
 
-        Ok(addressing_mode)
+        match instr.get_hex(addressing_mode) {
+            Ok(hex) => Ok(hex),
+            Err(e) => Err(
+                AssemblerError::InvalidAddressingMode(
+                    e.get_msg(),
+                    line.line_idx(),
+                    line.path()
+                )
+            )
+        }
     }
 }
