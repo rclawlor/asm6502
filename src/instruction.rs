@@ -39,7 +39,8 @@ pub enum AddressingMode {
     AbsoluteY,
     IndirectX,
     IndirectY,
-    Implied
+    Implied,
+    Relative
 }
 
 /// Used to generate the match arm for an 'implied'
@@ -52,6 +53,21 @@ macro_rules! implied {
     ($addr:expr, $mode:ident) => {
         match $mode {
             AddressingMode::Implied => $addr,
+            _ => return Err(OpCodeError::InvalidAddressingMode($mode))
+        }
+    };
+}
+
+/// Used to generate the match arm for a 'relative'
+/// addressing mode
+///
+/// # Arguments
+/// `addr` the hex opcode
+/// `mode` the addressing mode
+macro_rules! relative {
+    ($addr:expr, $mode:ident) => {
+        match $mode {
+            AddressingMode::Relative => $addr,
             _ => return Err(OpCodeError::InvalidAddressingMode($mode))
         }
     };
@@ -124,16 +140,16 @@ impl OpCode {
             Self::ADC => 0,
             Self::AND => 0,
             Self::ASL => 0,
-            Self::BCC => 0,
-            Self::BCS => 0,
-            Self::BEQ => 0,
+            Self::BCC => relative!(0x90, addressing_mode),
+            Self::BCS => relative!(0xb0, addressing_mode),
+            Self::BEQ => relative!(0xf0, addressing_mode),
             Self::BIT => 0,
-            Self::BMI => 0,
-            Self::BNE => 0,
-            Self::BPL => 0,
+            Self::BMI => relative!(0x30, addressing_mode),
+            Self::BNE => relative!(0xd0, addressing_mode),
+            Self::BPL => relative!(0x10, addressing_mode),
             Self::BRK => implied!(0x00, addressing_mode),
-            Self::BVC => 0,
-            Self::BVS => 0,
+            Self::BVC => relative!(0x50, addressing_mode),
+            Self::BVS => relative!(0x70, addressing_mode),
             Self::CLC => implied!(0x18, addressing_mode),
             Self::CLD => implied!(0xd8, addressing_mode),
             Self::CLI => implied!(0x58, addressing_mode),
@@ -180,6 +196,26 @@ impl OpCode {
         };
 
         Ok(hex)
+    }
+
+    /// Return opcode as a string
+    pub fn as_str(&self) -> String {
+        format!("{:?}", self)
+    }
+
+    /// Check if opcode has 'relative' addressing mode
+    pub fn is_relative(&self) -> bool {
+        match self {
+            Self::BCC => true,
+            Self::BCS => true,
+            Self::BEQ => true,
+            Self::BMI => true,
+            Self::BNE => true,
+            Self::BPL => true,
+            Self::BVC => true,
+            Self::BVS => true,
+            _ => false
+        }
     }
 }
 

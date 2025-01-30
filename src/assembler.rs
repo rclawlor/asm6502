@@ -99,18 +99,29 @@ impl Assembler {
             }
         }
         let (instr, addressing_mode) = match &token_match[..] {
+            // Implied
             [Instruction(instr)] => (instr, AddressingMode::Implied),
+            // Immediate
             [Instruction(instr), Constant(_)] => (instr, AddressingMode::Immediate),
+            // Zero Page
             [Instruction(instr), Address(a)] if *a <= 0xFF => (instr, AddressingMode::ZeroPage),
+            // Zero Page (X)
             [Instruction(instr), Address(a), Register(X)] if *a <= 0xFF => (instr, AddressingMode::ZeroPageX),
+            // Relative
+            [Instruction(instr), Address(_)] if instr.is_relative() => (instr, AddressingMode::Relative),
+            // Absolute
             [Instruction(instr), Address(_)] => (instr, AddressingMode::Absolute),
+            // Absolute (X)
             [Instruction(instr), Address(_), Register(X)] => (instr, AddressingMode::AbsoluteX),
+            // Absolute (Y)
             [Instruction(instr), Address(_), Register(Y)] => (instr, AddressingMode::AbsoluteY),
+            // Indirect (X)
             [Instruction(instr), OpenGroup, Address(a), Register(X), CloseGroup] if *a <= 0xFF => {
                 (instr, AddressingMode::IndirectX)
             }
+            // Indirect (Y)
             [Instruction(instr), OpenGroup, Address(a), CloseGroup, Register(Y)] if *a <= 0xFF => {
-                (instr, AddressingMode::IndirectX)
+                (instr, AddressingMode::IndirectY)
             }
             _ => {
                 return Err(AssemblerError::InvalidAddressingMode(
