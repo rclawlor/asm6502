@@ -1,473 +1,361 @@
-// Standard library
-use std::{
-    fs::File,
-    io::{BufRead, BufReader},
-    iter::{Enumerate, Peekable},
-    path::PathBuf,
-    str::{Chars, FromStr},
-};
+use std::str::{CharIndices, FromStr};
 
-// Local
-use crate::{
-    error::LexerError,
-    instruction::{OpCode, Preprocessor, Register},
-};
+use phf::phf_map;
+use strum::{EnumString, IntoStaticStr};
+use unicode_ident::{is_xid_continue, is_xid_start};
 
-/// The 6502 language tokens
-#[allow(dead_code)]
-#[derive(Clone, Debug, PartialEq)]
-pub enum Token {
-    /// A, X or Y register
-    Register(Register),
-    /// Instruction
-    Instruction(OpCode),
-    /// Memory address
-    Address(u16),
-    /// Number constant
-    Constant(u16),
-    /// Label representing constant or function
-    Label(String),
-    /// String
-    StringLiteral(String),
-    /// Label in local scope
-    LocalLabel(String),
-    /// Preprocessing instruction
-    Preprocessor(Preprocessor),
-    OpenGroup,
-    CloseGroup,
+use crate::ast::Span;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TokenKind {
+    // Keywords
+    Opcode,    // e.g. LDA
+    RegisterA, // "A"
+    RegisterX, // "X"
+    RegisterY, // "Y"
+
+    // Delimiters
+    Comma,        // ","
+    LeftBracket,  // "("
+    RightBracket, // ")"
+
+    // Identifiers
+    Number, // [0-9]+
+    Ident,  // XID_Start XID_Continue*
+
+    // Special tokens
+    Colon,     // ":"
+    SemiColon, // ";"
+    Hash,      // "#"
+
+    // Other
+    InvalidToken,
+    Eof,
 }
 
-/// Parsed tokens on a line
-#[derive(Clone, Debug)]
-pub struct LineTokens {
-    tokens: Vec<Token>,
-    line_idx: usize,
-    path: PathBuf,
+#[derive(Debug, Clone)]
+pub struct Token<'source> {
+    pub kind: TokenKind,
+    pub text: &'source str,
+    pub span: Span,
 }
 
-impl LineTokens {
-    /// Create a 'LineTokens' instance
-    pub fn new(tokens: Vec<Token>, line_idx: usize, path: PathBuf) -> Self {
-        LineTokens {
-            tokens,
-            line_idx,
-            path,
-        }
-    }
-
-    pub fn tokens(&self) -> &Vec<Token> {
-        &self.tokens
-    }
-
-    pub fn line_idx(&self) -> usize {
-        self.line_idx
-    }
-
-    pub fn path(&self) -> PathBuf {
-        self.path.clone()
-    }
+pub struct Lexer<'source> {
+    source: &'source str,
+    iter: CharIndices<'source>,
+    c: char,
+    pos: usize,
+    line: usize,
 }
 
-pub struct Lexer {
-    path: PathBuf,
-    tokens: Vec<LineTokens>,
-    line_idx: usize,
-    line: String,
-}
-
-impl Lexer {
-    /// Create a `Lexer` instance
-    pub fn new(path: PathBuf) -> Self {
-        Self {
-            path,
-            tokens: Vec::new(),
-            line_idx: 1,
-            line: String::new(),
-        }
-    }
-
-    /// Lex file and output tokens
-    pub fn lex(&mut self) -> Result<Vec<LineTokens>, LexerError> {
-        let file = match File::open(&self.path) {
-            Ok(file) => file,
-            Err(_) => {
-                return Err(LexerError::FileRead(
-                    format!("Unable to read file {:#?}", self.path),
-                    0,
-                    0,
-                    0,
-                    self.line.clone(),
-                    self.path.clone(),
-                ))
-            }
+impl<'source> Lexer<'source> {
+    /// Create a new Lexer instance
+    pub fn new(source: &'source str) -> Self {
+        let mut lexer = Self {
+            source,
+            iter: source.char_indices(),
+            c: '\0',
+            pos: 0,
+            line: 0,
         };
-        let lines = BufReader::new(file).lines();
 
-        for (line_idx, line) in lines.into_iter().enumerate() {
-            let line = match line {
-                Ok(line) => line,
-                Err(e) => {
-                    return Err(LexerError::FileRead(
-                        format!("Unable to read file: {:#?}", e),
-                        line_idx,
-                        0,
-                        0,
-                        self.line.clone(),
-                        self.path.clone(),
-                    ))
-                }
-            };
-            self.line_idx = line_idx;
-            self.line = line.clone();
+        lexer.advance();
+        lexer
+    }
 
-            let mut line_tokens = Vec::new();
-            let mut it = line.chars().enumerate().peekable();
-            while let Some((char_idx, c)) = it.peek() {
-                match c {
-                    // String
-                    'a'..='z' | 'A'..='Z' | '@' | '_' | '.' | '"' => {
-                        let start = char_idx.clone();
-                        let text = self.get_string(&mut it)?;
-                        let length = text.len();
-                        if text.ends_with(':') {
-                            if text.starts_with('@') {
-                                line_tokens.push(Token::LocalLabel(
-                                    text.strip_suffix(':').unwrap().to_string(),
-                                ))
-                            } else {
-                                line_tokens
-                                    .push(Token::Label(text.strip_suffix(':').unwrap().to_string()))
-                            }
-                        } else if text.starts_with('.') {
-                            let preprocessor =
-                                match Preprocessor::from_str(text.strip_prefix('.').unwrap()) {
-                                    Ok(preprocessor) => preprocessor,
-                                    Err(e) => {
-                                        return Err(LexerError::InvalidPreprocessor(
-                                            e.get_msg(),
-                                            self.line_idx,
-                                            start,
-                                            length,
-                                            line,
-                                            self.path.clone(),
-                                        ))
-                                    }
-                                };
-                            line_tokens.push(Token::Preprocessor(preprocessor));
-                        } else if text.starts_with('"') && text.ends_with('"') {
-                            let literal =
-                                text.strip_prefix('"').unwrap().strip_suffix('"').unwrap();
-                            line_tokens.push(Token::StringLiteral(literal.to_string()));
-                        } else if text.len() == 3 && line_tokens.len() == 0 {
-                            let opcode = match OpCode::from_str(text.as_str()) {
-                                Ok(opcode) => opcode,
-                                Err(e) => {
-                                    return Err(LexerError::InvalidInstruction(
-                                        e.get_msg(),
-                                        self.line_idx,
-                                        start,
-                                        length,
-                                        line,
-                                        self.path.clone(),
-                                    ))
-                                }
-                            };
-                            line_tokens.push(Token::Instruction(opcode));
-                        } else if text == "A" || text == "X" || text == "Y" {
-                            let register = match Register::from_str(text.as_str()) {
-                                Ok(register) => register,
-                                Err(e) => {
-                                    return Err(LexerError::InvalidRegister(
-                                        e.get_msg(),
-                                        self.line_idx,
-                                        start,
-                                        1,
-                                        line,
-                                        self.path.clone(),
-                                    ))
-                                }
-                            };
-                            line_tokens.push(Token::Register(register));
-                        } else {
-                            line_tokens.push(Token::Label(text.to_string()))
-                        }
-                    }
-                    // Constant
-                    '#' => {
-                        it.next();
-                        if let Some((char_idx, d)) = it.next() {
-                            let token = match d {
-                                '$' => Token::Constant(self.get_hex_number(&mut it)?),
-                                'd' => Token::Constant(self.get_decimal_number(&mut it)?),
-                                '%' => Token::Constant(self.get_binary_number(&mut it)?),
-                                _ => {
-                                    return Err(LexerError::InvalidNumber(
-                                        format!("invalid number constant '{}'", d),
-                                        self.line_idx,
-                                        char_idx,
-                                        1,
-                                        line,
-                                        self.path.clone(),
-                                    ))
-                                }
-                            };
-                            line_tokens.push(token);
-                        };
-                    }
-                    // Address
-                    '$' => {
-                        it.next();
-                        if let Some((char_idx, _d)) = it.next() {
-                            let address = match self.get_hex_number(&mut it) {
-                                Ok(address) => address,
-                                Err(e) => {
-                                    return Err(LexerError::InvalidAddress(
-                                        format!("{}", e),
-                                        self.line_idx,
-                                        char_idx,
-                                        1,
-                                        line,
-                                        self.path.clone(),
-                                    ))
-                                }
-                            };
-                            line_tokens.push(Token::Address(address));
-                        };
-                    }
-                    // Open group
-                    '(' => {
-                        it.next();
-                        line_tokens.push(Token::OpenGroup);
-                    }
-                    ')' => {
-                        it.next();
-                        line_tokens.push(Token::CloseGroup);
-                    }
-                    // New line
-                    '\n' => break,
-                    // Whitespace
-                    ' ' | '\t' => {
-                        it.next();
-                    }
-                    // Separator
-                    ',' => {
-                        it.next();
-                    }
-                    // Comment
-                    ';' => break,
-                    // Raise error on unrecognised character
-                    other => {
-                        return Err(LexerError::InvalidCharacter(
-                            format!("Invalid character '{}'", other),
-                            self.line_idx,
-                            *char_idx,
-                            1,
-                            line,
-                            self.path.clone(),
-                        ))
-                    }
-                }
-            }
+    /// Find next token
+    pub fn next_token(&mut self) -> Token<'source> {
+        loop {
+            self.skip_whitespace();
 
-            // Lex imported files and add to token list
-            if line_tokens.starts_with(&[Token::Preprocessor(Preprocessor::INCSRC)]) {
-                match &line_tokens[line_tokens.len() - 1] {
-                    Token::StringLiteral(s) => {
-                        let path = match PathBuf::from_str(s) {
-                            Ok(path) => path,
-                            Err(_) => {
-                                return Err(LexerError::FileRead(
-                                    format!("Unable to read import '{}'", s),
-                                    self.line_idx,
-                                    0,
-                                    self.line.len(),
-                                    line,
-                                    self.path.clone(),
-                                ))
-                            }
-                        };
-                        let mut lexer = Self::new(path);
-                        let subtokens = lexer.lex()?;
-                        for tokens in subtokens.into_iter() {
-                            self.tokens.push(tokens);
-                        }
-                    }
-                    _ => {
-                        return Err(LexerError::InvalidPreprocessor(
-                            "Expected source file".to_string(),
-                            self.line_idx,
-                            0,
-                            1,
-                            line,
-                            self.path.clone(),
-                        ))
-                    }
+            if self.at_end() {
+                return Token {
+                    kind: TokenKind::Eof,
+                    text: "",
+                    span: Span {
+                        start: self.source.len(),
+                        end: self.source.len(),
+                    },
                 };
             }
-            self.tokens
-                .push(LineTokens::new(line_tokens, line_idx, self.path.clone()));
-        }
 
-        Ok(self.tokens.clone())
+            let start_pos = self.pos;
+
+            let token_kind = match self.next_char() {
+                // Single-character tokens
+                '#' => TokenKind::Hash,
+                ',' => TokenKind::Comma,
+                '(' => TokenKind::LeftBracket,
+                ')' => TokenKind::RightBracket,
+                ':' => TokenKind::Colon,
+
+                // Comment
+                ';' => {
+                    if self.accept(';') {
+                        while !self.at_end() && self.peek_char() != '\n' {
+                            self.advance();
+                        }
+                        continue;
+                    }
+                    TokenKind::SemiColon
+                }
+
+                // Numbers
+                c if (c.is_ascii_digit() || c == '$' || c == '%') => {
+                    if !c.is_ascii_digit() {
+                        self.advance();
+                    }
+                    while self.peek_char().is_ascii_hexdigit() || self.peek_char() == 'x' {
+                        self.advance();
+                    }
+                    TokenKind::Number
+                }
+
+                // Keywords
+                c if is_xid_start(c) => {
+                    while is_xid_continue(self.peek_char()) {
+                        self.advance();
+                    }
+
+                    let text = &self.source[start_pos..self.pos];
+                    KEYWORDS.get(text).copied().unwrap_or(TokenKind::Ident)
+                }
+
+                _ => TokenKind::InvalidToken,
+            };
+
+            let text = &self.source[start_pos..self.pos];
+
+            return Token {
+                kind: token_kind,
+                text,
+                span: Span {
+                    start: start_pos,
+                    end: self.pos,
+                },
+            };
+        }
     }
 
-    /// Parse a string from the source file
-    fn get_string(
-        &mut self,
-        it: &mut Peekable<Enumerate<Chars<'_>>>,
-    ) -> Result<String, LexerError> {
-        let mut text = String::new();
-        let mut string_idx = 0;
-        while let Some((_, c)) = it.peek() {
-            match (string_idx, c) {
-                (_, 'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '/' | '.') => {
-                    let (_, c) = it.next().unwrap();
-                    text.push(c.clone());
-                }
-                (_, ':') => {
-                    let (_, c) = it.next().unwrap();
-                    text.push(c.clone());
-                    break;
-                }
-                (0, '"') => {
-                    let (_, c) = it.next().unwrap();
-                    text.push(c.clone());
-                }
-                (_, '"') => {
-                    let (_, c) = it.next().unwrap();
-                    text.push(c.clone());
-                    break;
-                }
-                _ => break,
-            }
-            string_idx += 1;
+    /// Skip all whitespace characters
+    fn skip_whitespace(&mut self) {
+        if self.peek_char() == '\n' {
+            self.line += 1;
         }
-        Ok(text)
+        while self.peek_char().is_whitespace() {
+            self.advance();
+        }
     }
 
-    /// Parse a hex number from the source file
-    fn get_hex_number(
-        &mut self,
-        it: &mut Peekable<Enumerate<Chars<'_>>>,
-    ) -> Result<u16, LexerError> {
-        let mut number_str = Vec::new();
-        let (start_idx, _) = it.peek().expect("Already checked to have number").clone();
-        while let Some((_, c)) = it.peek() {
-            match c {
-                ' ' | '\n' | ',' => break,
-                _ => {
-                    let (_, c) = it.next().unwrap();
-                    number_str.push(c);
-                }
-            }
+    /// Advance to next char
+    fn advance(&mut self) {
+        if let Some((pos, c)) = self.iter.next() {
+            self.pos = pos;
+            self.c = c;
+        } else {
+            self.pos = self.source.len();
+            self.c = '\0';
         }
-
-        let mut number: u16 = 0;
-        let number_len = number_str.len();
-        for c in number_str {
-            match c {
-                '0'..='9' | 'a'..='f' | 'A'..='F' => {
-                    number = (number * 16)
-                        + u16::from_str_radix(&c.to_string(), 16)
-                            .expect("Number already checked to be within [0-9a-fA-F] range");
-                }
-                _ => {
-                    return Err(LexerError::InvalidNumber(
-                        format!("Invalid hex number"),
-                        self.line_idx,
-                        start_idx,
-                        number_len,
-                        self.line.clone(),
-                        self.path.clone(),
-                    ))
-                }
-            }
-        }
-
-        Ok(number)
     }
 
-    /// Parse a decimal number from the source file
-    fn get_decimal_number(
-        &mut self,
-        it: &mut Peekable<Enumerate<Chars<'_>>>,
-    ) -> Result<u16, LexerError> {
-        let mut number_str = Vec::new();
-        let (start_idx, _) = it.peek().expect("Already checked to have number").clone();
-        while let Some((_, c)) = it.peek() {
-            match c {
-                ' ' | '\n' | ',' => break,
-                _ => {
-                    let (_, c) = it.next().unwrap();
-                    number_str.push(c);
-                }
-            }
-        }
-
-        let mut number: u16 = 0;
-        let number_len = number_str.len();
-        for c in number_str {
-            match c {
-                '0'..='9' => {
-                    number = (number * 10)
-                        + u16::from_str_radix(&c.to_string(), 10)
-                            .expect("Number already checked to be within [0-9] range");
-                }
-                _ => {
-                    return Err(LexerError::InvalidNumber(
-                        format!("Invalid decimal number"),
-                        self.line_idx,
-                        start_idx,
-                        number_len,
-                        self.line.clone(),
-                        self.path.clone(),
-                    ))
-                }
-            }
-        }
-
-        Ok(number)
+    /// Consume and move to next char
+    fn next_char(&mut self) -> char {
+        let c = self.c;
+        self.advance();
+        c
     }
 
-    /// Parse a binary number from the source file
-    fn get_binary_number(
-        &mut self,
-        it: &mut Peekable<Enumerate<Chars<'_>>>,
-    ) -> Result<u16, LexerError> {
-        let mut number_str = Vec::new();
-        let (start_idx, _) = it.peek().expect("Already checked to have number").clone();
-        while let Some((_, c)) = it.peek() {
-            match c {
-                ' ' | '\n' | ',' => break,
-                _ => {
-                    let (_, c) = it.next().unwrap();
-                    number_str.push(c);
-                }
+    /// Check next char
+    fn peek_char(&self) -> char {
+        self.c
+    }
+
+    /// Consume next char on match
+    fn accept(&mut self, c: char) -> bool {
+        if self.peek_char() == c {
+            self.advance();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Check if source file finished
+    fn at_end(&self) -> bool {
+        self.pos >= self.source.len()
+    }
+}
+
+static KEYWORDS: phf::Map<&'static str, TokenKind> = phf_map! {
+    "A" => TokenKind::RegisterA,
+    "X" => TokenKind::RegisterX,
+    "Y" => TokenKind::RegisterY,
+    "ADC" | "AND" | "ASL" |
+    "BCC" | "BCS" | "BEQ" |
+    "BIT" | "BMI" | "BNE" |
+    "BPL" | "BRK" | "BVC" |
+    "BVS" | "CLC" | "CLD" |
+    "CLI" | "CLV" | "CMP" |
+    "CPX" | "CPY" | "DEC" |
+    "DEX" | "DEY" | "EOR" |
+    "INC" | "INX" | "INY" |
+    "JMP" | "JSR" | "LDA" |
+    "LDX" | "LDY" | "LSR" |
+    "NOP" | "ORA" | "PHA" |
+    "PHP" | "PLA" | "PLP" |
+    "ROL" | "ROR" | "RTI" |
+    "RTS" | "SBC" | "SEC" |
+    "SED" | "SEI" | "STA" |
+    "STX" | "STY" | "TAX" |
+    "TAY" | "TSX" | "TXA" |
+    "TXS" | "TYA" => TokenKind::Opcode,
+};
+
+
+#[derive(EnumString, IntoStaticStr)]
+pub enum Opcode {
+    ADC,
+    AND,
+    ASL,
+    BCC,
+    BCS,
+    BEQ,
+    BIT,
+    BMI,
+    BNE,
+    BPL,
+    BRK,
+    BVC,
+    BVS,
+    CLC,
+    CLD,
+    CLI,
+    CLV,
+    CMP,
+    CPX,
+    CPY,
+    DEC,
+    DEX,
+    DEY,
+    EOR,
+    INC,
+    INX,
+    INY,
+    JMP,
+    JSR,
+    LDA,
+    LDX,
+    LDY,
+    LSR,
+    NOP,
+    ORA,
+    PHA,
+    PHP,
+    PLA,
+    PLP,
+    ROL,
+    ROR,
+    RTI,
+    RTS,
+    SBC,
+    SEC,
+    SED,
+    SEI,
+    STA,
+    STX,
+    STY,
+    TAX,
+    TAY,
+    TSX,
+    TXA,
+    TXS,
+    TYA,
+}
+
+impl Opcode {
+    pub fn is_opcode(s: &str) -> bool {
+        Opcode::from_str(s).is_ok()
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn lex(source: &str) -> Vec<Token<'_>> {
+        let mut lexer = Lexer::new(source);
+        let mut tokens = Vec::new();
+        loop {
+            let token = lexer.next_token();
+            let is_eof = token.kind == TokenKind::Eof;
+            tokens.push(token);
+            if is_eof {
+                break;
             }
         }
+        tokens
+    }
 
-        let mut number: u16 = 0;
-        let number_len = number_str.len();
-        for c in number_str {
-            match c {
-                '0'..='1' => {
-                    number = (number * 2)
-                        + u16::from_str_radix(&c.to_string(), 2)
-                            .expect("Number already checked to be within [0-1] range");
-                }
-                _ => {
-                    return Err(LexerError::InvalidNumber(
-                        format!("Invalid binary number"),
-                        self.line_idx,
-                        start_idx,
-                        number_len,
-                        self.line.clone(),
-                        self.path.clone(),
-                    ))
-                }
-            }
-        }
+    #[test]
+    fn test_empty() {
+        let tokens = lex("");
+        assert_eq!(tokens.len(), 1);
+        assert_eq!(tokens[0].kind, TokenKind::Eof);
+    }
 
-        Ok(number)
+    #[test]
+    fn test_whitespace_only() {
+        let tokens = lex("  \t\n\r ");
+        assert_eq!(tokens.len(), 1);
+        assert_eq!(tokens[0].kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_single_char_tokens() {
+        let tokens = lex(":;()#,");
+        assert_eq!(tokens.len(), 6 + 1);
+        assert_eq!(tokens[0].kind, TokenKind::Colon);
+        assert_eq!(tokens[1].kind, TokenKind::SemiColon);
+        assert_eq!(tokens[2].kind, TokenKind::LeftBracket);
+        assert_eq!(tokens[3].kind, TokenKind::RightBracket);
+        assert_eq!(tokens[4].kind, TokenKind::Hash);
+        assert_eq!(tokens[5].kind, TokenKind::Comma);
+        assert_eq!(tokens[6].kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_keywords() {
+        let tokens = lex("A X Y ADC LDA TXA");
+        assert_eq!(tokens.len(), 6 + 1);
+        assert_eq!(tokens[0].kind, TokenKind::RegisterA);
+        assert_eq!(tokens[1].kind, TokenKind::RegisterX);
+        assert_eq!(tokens[2].kind, TokenKind::RegisterY);
+        assert_eq!(tokens[3].kind, TokenKind::Opcode);
+        assert_eq!(tokens[4].kind, TokenKind::Opcode);
+        assert_eq!(tokens[5].kind, TokenKind::Opcode);
+        assert_eq!(tokens[6].kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_numbers() {
+        let tokens = lex("0 00 10 234 0x10 $10 $FF10");
+        println!("{:#?}", tokens);
+        assert_eq!(tokens.len(), 7 + 1);
+        assert_eq!(tokens[0].kind, TokenKind::Number);
+        assert_eq!(tokens[0].text, "0");
+        assert_eq!(tokens[1].kind, TokenKind::Number);
+        assert_eq!(tokens[1].text, "00");
+        assert_eq!(tokens[2].kind, TokenKind::Number);
+        assert_eq!(tokens[2].text, "10");
+        assert_eq!(tokens[3].kind, TokenKind::Number);
+        assert_eq!(tokens[3].text, "234");
+        assert_eq!(tokens[4].kind, TokenKind::Number);
+        assert_eq!(tokens[4].text, "0x10");
+        assert_eq!(tokens[5].kind, TokenKind::Number);
+        assert_eq!(tokens[5].text, "$10");
+        assert_eq!(tokens[6].kind, TokenKind::Number);
+        assert_eq!(tokens[6].text, "$FF10");
+        assert_eq!(tokens[7].kind, TokenKind::Eof);
     }
 }

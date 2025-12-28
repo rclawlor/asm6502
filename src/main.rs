@@ -1,12 +1,9 @@
 use clap::Parser;
 
 // Local
-mod assembler;
+mod ast;
 mod error;
-mod instruction;
 mod lexer;
-
-use crate::{assembler::Assembler, error::ErrorLevel, lexer::Lexer};
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -18,25 +15,5 @@ struct Cli {
 
 fn main() {
     let args = Cli::parse();
-
-    // Parse inital file
-    let mut lexer = Lexer::new(args.path);
-    let tokens = match lexer.lex() {
-        Ok(tokens) => tokens,
-        Err(e) => {
-            let error = e.generate_context_error(ErrorLevel::Error);
-            println!("{}", error);
-            return;
-        }
-    };
-
-    let mut assembler = Assembler::new();
-    let hex = match assembler.assemble(tokens) {
-        Ok(hex) => hex,
-        Err(e) => {
-            let error = e.generate_context_error(ErrorLevel::Error);
-            println!("{}", error);
-            return;
-        }
-    };
+    println!("Hello!");
 }
