@@ -302,17 +302,17 @@ mod tests {
 
     #[test]
     fn test_numbers() {
-        let tokens = lex("#0 #$F0 #%101 #234 $10 $FF10");
+        let tokens = lex("0 $F0 %101 234 $10 $FF10");
         println!("{:#?}", tokens);
         assert_eq!(tokens.len(), 6 + 1);
         assert_eq!(tokens[0].kind, TokenKind::Number);
-        assert_eq!(tokens[0].text, "#0");
+        assert_eq!(tokens[0].text, "0");
         assert_eq!(tokens[1].kind, TokenKind::Number);
-        assert_eq!(tokens[1].text, "#$F0");
+        assert_eq!(tokens[1].text, "$F0");
         assert_eq!(tokens[2].kind, TokenKind::Number);
-        assert_eq!(tokens[2].text, "#%101");
+        assert_eq!(tokens[2].text, "%101");
         assert_eq!(tokens[3].kind, TokenKind::Number);
-        assert_eq!(tokens[3].text, "#234");
+        assert_eq!(tokens[3].text, "234");
         assert_eq!(tokens[4].kind, TokenKind::Number);
         assert_eq!(tokens[4].text, "$10");
         assert_eq!(tokens[5].kind, TokenKind::Number);
