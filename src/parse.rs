@@ -105,7 +105,7 @@ impl<'source> Parser<'source> {
             Ok(opcode) => opcode,
             Err(_) => {
                 self.error(format!("Invalid opcode: {}", self.current.text), loc);
-                Opcode::INVALID_OPCODE
+                Opcode::Adc
             }
         };
         self.advance();
@@ -133,8 +133,8 @@ impl<'source> Parser<'source> {
                 TokenKind::Number => operands.push(Operand::Number(self.parse_number())),
                 _ => {
                     self.advance();
-                    break
-                },
+                    break;
+                }
             }
             self.advance();
         }
@@ -156,7 +156,7 @@ impl<'source> Parser<'source> {
             None => {
                 self.error(format!("Expected number, got '{}'", self.current.text), loc);
                 10
-            },
+            }
         };
         let s = if base != 10 {
             &self.current.text[1..]
@@ -166,7 +166,10 @@ impl<'source> Parser<'source> {
         let value = match i16::from_str_radix(s, base) {
             Ok(value) => value,
             Err(_) => {
-                self.error(format!("Unable to parse number '{}'", self.current.text), loc);
+                self.error(
+                    format!("Unable to parse number '{}'", self.current.text),
+                    loc,
+                );
                 0
             }
         };
@@ -174,7 +177,7 @@ impl<'source> Parser<'source> {
         Number {
             id: next_node_id(),
             span: self.span_from(loc),
-            value
+            value,
         }
     }
 
@@ -200,7 +203,6 @@ impl<'source> Parser<'source> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -224,18 +226,14 @@ mod tests {
         match &program.items[0] {
             ProgramItem::Instruction(instr) => {
                 println!("{:#?}", instr);
-                assert_eq!(instr.opcode, Opcode::LDA);
+                assert_eq!(instr.opcode, Opcode::Lda);
                 assert_eq!(instr.operands.len(), 2);
                 match &instr.operands[1] {
                     Operand::Number(x) => assert_eq!(x.value, 0x10),
-                    other => assert!(
-                        false, "Expected number, got {:#?}", other
-                    ),
+                    other => assert!(false, "Expected number, got {:#?}", other),
                 }
-            },
-            other => assert!(
-                false, "Expected instruction, got {:#?}", other
-            ),
+            }
+            other => assert!(false, "Expected instruction, got {:#?}", other),
         }
     }
 }
