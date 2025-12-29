@@ -61,7 +61,16 @@ pub struct Preprocessor {
 
 #[derive(Debug, Clone)]
 pub enum DirectiveItem {
+    Number(Number),
+    Ident(Ident),
+}
 
+
+#[derive(Debug, Clone)]
+pub struct Number {
+    pub id: NodeId,
+    pub span: Span,
+    pub value: i16,
 }
 
 

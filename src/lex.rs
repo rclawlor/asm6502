@@ -23,6 +23,7 @@ pub enum TokenKind {
     // Identifiers
     Number,         // [0-9]+
     Ident,          // XID_Start XID_Continue*
+    String,         // "..." or '...'
 
     // Special tokens
     Colon,          // ":"
@@ -114,6 +115,22 @@ impl<'source> Lexer<'source> {
                     } else {
                         TokenKind::InvalidToken
                     }
+                }
+
+                c if (c == '"') | (c == '\'') => {
+                    let quote = c;
+                    let mut escaped = false;
+                    while
+                        (self.peek_char() != quote || escaped)
+                        && !self.at_end()
+                        && self.peek_char() != '\n'
+                    {
+                        escaped = self.peek_char() == '\\';
+                        self.advance();
+                    }
+                    self.advance();
+
+                    TokenKind::String
                 }
 
                 // Numbers
@@ -316,5 +333,15 @@ mod tests {
         assert_eq!(tokens[2].kind, TokenKind::Preprocessor);
         assert_eq!(tokens[3].kind, TokenKind::Preprocessor);
         assert_eq!(tokens[4].kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_string() {
+        let tokens = lex("\"Hello\" 'filename/test' \"Test \\\'test\\\'\" ");
+        assert_eq!(tokens.len(), 3 + 1);
+        assert_eq!(tokens[0].kind, TokenKind::String);
+        assert_eq!(tokens[1].kind, TokenKind::String);
+        assert_eq!(tokens[2].kind, TokenKind::String);
+        assert_eq!(tokens[3].kind, TokenKind::Eof);
     }
 }
