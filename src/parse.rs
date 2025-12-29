@@ -7,8 +7,15 @@ use crate::{
 };
 
 /// Parse source file
-pub fn parse(source: &str) -> Result<(), Vec<CompileError>> {
-    Ok(())
+pub fn parse(source: &str) -> Result<Program, Vec<CompileError>> {
+    let mut parser = Parser::new(source);
+    let program = parser.parse_program();
+
+    if parser.errors.is_empty() {
+        Ok(program)
+    } else {
+        Err(parser.errors)
+    }
 }
 
 struct Parser<'source> {
@@ -100,6 +107,30 @@ impl<'source> Parser<'source> {
             }
         };
         let mut operands = Vec::new();
+        loop {
+            match self.current.kind {
+                TokenKind::RegisterA | TokenKind::RegisterX | TokenKind::RegisterY => {
+                    let register = match Register::from_token(self.current.kind) {
+                        Some(register) => register,
+                        None => {
+                            self.error(
+                                format!("Invalid register: {:#?}", self.current.kind),
+                                self.current.span,
+                            );
+                            Register::A
+                        }
+                    };
+                    operands.push(Operand::Register(register));
+                }
+                TokenKind::Hash => operands.push(Operand::Immediate),
+                TokenKind::Comma => operands.push(Operand::Index),
+                TokenKind::LeftBracket => operands.push(Operand::LeftBracket),
+                TokenKind::RightBracket => operands.push(Operand::RightBracket),
+                TokenKind::Ident => operands.push(Operand::Ident(self.parse_ident())),
+                _ => break,
+            }
+            self.advance();
+        }
 
         Instruction {
             id: next_node_id(),

@@ -2,6 +2,8 @@ use std::{str::FromStr, sync::atomic::AtomicUsize};
 
 use strum::{EnumString, IntoStaticStr};
 
+use crate::lex::TokenKind;
+
 /// ID of AST node
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NodeId(usize);
@@ -65,22 +67,36 @@ pub struct Instruction {
     pub id: NodeId,
     pub span: Span,
     pub opcode: Opcode,
-    pub operands: Vec<Operands>,
+    pub operands: Vec<Operand>,
 }
 
 #[derive(Debug, Clone)]
-pub enum Operands {
+pub enum Operand {
     Number(Number),
     Ident(Ident),
-    String(String),
     Register(Register),
+    Immediate,
+    Index,
+    LeftBracket,
+    RightBracket,
 }
 
 #[derive(Debug, Clone)]
 pub enum Register {
-    RegisterA,
-    RegisterX,
-    RegisterY,
+    A,
+    X,
+    Y,
+}
+
+impl Register {
+    pub fn from_token(token: TokenKind) -> Option<Register> {
+        match token {
+            TokenKind::RegisterA => Some(Register::A),
+            TokenKind::RegisterX => Some(Register::X),
+            TokenKind::RegisterY => Some(Register::Y),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

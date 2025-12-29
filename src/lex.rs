@@ -20,12 +20,12 @@ pub enum TokenKind {
     RightBracket, // ")"
 
     // Identifiers
-    Number,   // #[0-9]+
-    Register, // $[0-9]+
-    Ident,    // XID_Start XID_Continue*
-    String,   // "..." or '...'
+    Number, // [0-9]+
+    Ident,  // XID_Start XID_Continue*
+    String, // "..." or '...'
 
     // Special tokens
+    Hash,      // "#"
     Colon,     // ":"
     SemiColon, // ";"
 
@@ -88,6 +88,7 @@ impl<'source> Lexer<'source> {
                 '(' => TokenKind::LeftBracket,
                 ')' => TokenKind::RightBracket,
                 ':' => TokenKind::Colon,
+                '#' => TokenKind::Hash,
 
                 // Comment
                 ';' => {
@@ -131,21 +132,14 @@ impl<'source> Lexer<'source> {
                 }
 
                 // Numbers
-                '#' => {
-                    self.advance();
-                    while self.peek_char().is_ascii_hexdigit() {
+                c if (c.is_ascii_digit() || c == '$' || c == '%') => {
+                    if !c.is_ascii_digit() {
+                        self.advance();
+                    }
+                    while self.peek_char().is_ascii_hexdigit() || self.peek_char() == 'x' {
                         self.advance();
                     }
                     TokenKind::Number
-                }
-
-                // Registers
-                '$' => {
-                    self.advance();
-                    while self.peek_char().is_ascii_hexdigit() {
-                        self.advance();
-                    }
-                    TokenKind::Register
                 }
 
                 // Keywords
@@ -282,14 +276,15 @@ mod tests {
 
     #[test]
     fn test_single_char_tokens() {
-        let tokens = lex(":;(),");
-        assert_eq!(tokens.len(), 5 + 1);
+        let tokens = lex(":;(),#");
+        assert_eq!(tokens.len(), 6 + 1);
         assert_eq!(tokens[0].kind, TokenKind::Colon);
         assert_eq!(tokens[1].kind, TokenKind::SemiColon);
         assert_eq!(tokens[2].kind, TokenKind::LeftBracket);
         assert_eq!(tokens[3].kind, TokenKind::RightBracket);
         assert_eq!(tokens[4].kind, TokenKind::Comma);
-        assert_eq!(tokens[5].kind, TokenKind::Eof);
+        assert_eq!(tokens[5].kind, TokenKind::Hash);
+        assert_eq!(tokens[6].kind, TokenKind::Eof);
     }
 
     #[test]
@@ -318,9 +313,9 @@ mod tests {
         assert_eq!(tokens[2].text, "#%101");
         assert_eq!(tokens[3].kind, TokenKind::Number);
         assert_eq!(tokens[3].text, "#234");
-        assert_eq!(tokens[4].kind, TokenKind::Register);
+        assert_eq!(tokens[4].kind, TokenKind::Number);
         assert_eq!(tokens[4].text, "$10");
-        assert_eq!(tokens[5].kind, TokenKind::Register);
+        assert_eq!(tokens[5].kind, TokenKind::Number);
         assert_eq!(tokens[5].text, "$FF10");
         assert_eq!(tokens[6].kind, TokenKind::Eof);
     }
