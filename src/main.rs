@@ -6,7 +6,6 @@ mod error;
 mod lex;
 mod parse;
 
-
 #[derive(Parser)]
 #[command(version, about)]
 struct Cli {

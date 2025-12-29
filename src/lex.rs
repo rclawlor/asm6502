@@ -5,30 +5,29 @@ use unicode_ident::{is_xid_continue, is_xid_start};
 
 use crate::ast::{Directive, Span};
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TokenKind {
     // Keywords
-    Opcode,         // e.g. LDA
-    RegisterA,      // "A"
-    RegisterX,      // "X"
-    RegisterY,      // "Y"
-    Preprocessor,   // e.g. .include
+    Opcode,       // e.g. LDA
+    RegisterA,    // "A"
+    RegisterX,    // "X"
+    RegisterY,    // "Y"
+    Preprocessor, // e.g. .include
 
     // Delimiters
-    Comma,          // ","
-    LeftBracket,    // "("
-    RightBracket,   // ")"
+    Comma,        // ","
+    LeftBracket,  // "("
+    RightBracket, // ")"
 
     // Identifiers
-    Number,         // [0-9]+
-    Ident,          // XID_Start XID_Continue*
-    String,         // "..." or '...'
+    Number,   // #[0-9]+
+    Register, // $[0-9]+
+    Ident,    // XID_Start XID_Continue*
+    String,   // "..." or '...'
 
     // Special tokens
-    Colon,          // ":"
-    SemiColon,      // ";"
-    Hash,           // "#"
+    Colon,     // ":"
+    SemiColon, // ";"
 
     // Other
     InvalidToken,
@@ -85,7 +84,6 @@ impl<'source> Lexer<'source> {
 
             let token_kind = match self.next_char() {
                 // Single-character tokens
-                '#' => TokenKind::Hash,
                 ',' => TokenKind::Comma,
                 '(' => TokenKind::LeftBracket,
                 ')' => TokenKind::RightBracket,
@@ -120,8 +118,7 @@ impl<'source> Lexer<'source> {
                 c if (c == '"') | (c == '\'') => {
                     let quote = c;
                     let mut escaped = false;
-                    while
-                        (self.peek_char() != quote || escaped)
+                    while (self.peek_char() != quote || escaped)
                         && !self.at_end()
                         && self.peek_char() != '\n'
                     {
@@ -134,14 +131,21 @@ impl<'source> Lexer<'source> {
                 }
 
                 // Numbers
-                c if (c.is_ascii_digit() || c == '$' || c == '%') => {
-                    if !c.is_ascii_digit() {
-                        self.advance();
-                    }
-                    while self.peek_char().is_ascii_hexdigit() || self.peek_char() == 'x' {
+                '#' => {
+                    self.advance();
+                    while self.peek_char().is_ascii_hexdigit() {
                         self.advance();
                     }
                     TokenKind::Number
+                }
+
+                // Registers
+                '$' => {
+                    self.advance();
+                    while self.peek_char().is_ascii_hexdigit() {
+                        self.advance();
+                    }
+                    TokenKind::Register
                 }
 
                 // Keywords
@@ -244,7 +248,6 @@ static KEYWORDS: phf::Map<&'static str, TokenKind> = phf_map! {
     "TXS" | "TYA" => TokenKind::Opcode,
 };
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -279,15 +282,14 @@ mod tests {
 
     #[test]
     fn test_single_char_tokens() {
-        let tokens = lex(":;()#,");
-        assert_eq!(tokens.len(), 6 + 1);
+        let tokens = lex(":;(),");
+        assert_eq!(tokens.len(), 5 + 1);
         assert_eq!(tokens[0].kind, TokenKind::Colon);
         assert_eq!(tokens[1].kind, TokenKind::SemiColon);
         assert_eq!(tokens[2].kind, TokenKind::LeftBracket);
         assert_eq!(tokens[3].kind, TokenKind::RightBracket);
-        assert_eq!(tokens[4].kind, TokenKind::Hash);
-        assert_eq!(tokens[5].kind, TokenKind::Comma);
-        assert_eq!(tokens[6].kind, TokenKind::Eof);
+        assert_eq!(tokens[4].kind, TokenKind::Comma);
+        assert_eq!(tokens[5].kind, TokenKind::Eof);
     }
 
     #[test]
@@ -305,23 +307,22 @@ mod tests {
 
     #[test]
     fn test_numbers() {
-        let tokens = lex("0 00 10 234 0x10 $10 $FF10");
-        assert_eq!(tokens.len(), 7 + 1);
+        let tokens = lex("#0 #$F0 #%101 #234 $10 $FF10");
+        println!("{:#?}", tokens);
+        assert_eq!(tokens.len(), 6 + 1);
         assert_eq!(tokens[0].kind, TokenKind::Number);
-        assert_eq!(tokens[0].text, "0");
+        assert_eq!(tokens[0].text, "#0");
         assert_eq!(tokens[1].kind, TokenKind::Number);
-        assert_eq!(tokens[1].text, "00");
+        assert_eq!(tokens[1].text, "#$F0");
         assert_eq!(tokens[2].kind, TokenKind::Number);
-        assert_eq!(tokens[2].text, "10");
+        assert_eq!(tokens[2].text, "#%101");
         assert_eq!(tokens[3].kind, TokenKind::Number);
-        assert_eq!(tokens[3].text, "234");
-        assert_eq!(tokens[4].kind, TokenKind::Number);
-        assert_eq!(tokens[4].text, "0x10");
-        assert_eq!(tokens[5].kind, TokenKind::Number);
-        assert_eq!(tokens[5].text, "$10");
-        assert_eq!(tokens[6].kind, TokenKind::Number);
-        assert_eq!(tokens[6].text, "$FF10");
-        assert_eq!(tokens[7].kind, TokenKind::Eof);
+        assert_eq!(tokens[3].text, "#234");
+        assert_eq!(tokens[4].kind, TokenKind::Register);
+        assert_eq!(tokens[4].text, "$10");
+        assert_eq!(tokens[5].kind, TokenKind::Register);
+        assert_eq!(tokens[5].text, "$FF10");
+        assert_eq!(tokens[6].kind, TokenKind::Eof);
     }
 
     #[test]

@@ -1,10 +1,6 @@
-use std::{
-    sync::atomic::AtomicUsize,
-    str::FromStr
-};
+use std::{str::FromStr, sync::atomic::AtomicUsize};
 
 use strum::{EnumString, IntoStaticStr};
-
 
 /// ID of AST node
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,7 +30,6 @@ impl Span {
     }
 }
 
-
 #[derive(Debug, Clone)]
 pub struct Program {
     pub id: NodeId,
@@ -42,13 +37,13 @@ pub struct Program {
     pub items: Vec<ProgramItem>,
 }
 
-
 #[derive(Debug, Clone)]
 pub enum ProgramItem {
     Preprocessor(Preprocessor),
-    Opcode(Opcode),
+    Instruction(Instruction),
+    Number(Number),
+    Ident(Ident),
 }
-
 
 #[derive(Debug, Clone)]
 pub struct Preprocessor {
@@ -58,13 +53,35 @@ pub struct Preprocessor {
     pub args: Vec<DirectiveItem>,
 }
 
-
 #[derive(Debug, Clone)]
 pub enum DirectiveItem {
     Number(Number),
     Ident(Ident),
+    String(String),
 }
 
+#[derive(Debug, Clone)]
+pub struct Instruction {
+    pub id: NodeId,
+    pub span: Span,
+    pub opcode: Opcode,
+    pub operands: Vec<Operands>,
+}
+
+#[derive(Debug, Clone)]
+pub enum Operands {
+    Number(Number),
+    Ident(Ident),
+    String(String),
+    Register(Register),
+}
+
+#[derive(Debug, Clone)]
+pub enum Register {
+    RegisterA,
+    RegisterX,
+    RegisterY,
+}
 
 #[derive(Debug, Clone)]
 pub struct Number {
@@ -73,14 +90,12 @@ pub struct Number {
     pub value: i16,
 }
 
-
 #[derive(Debug, Clone)]
 pub struct Ident {
     pub id: NodeId,
     pub span: Span,
     pub value: String,
 }
-
 
 #[derive(Clone, Copy, Debug, EnumString, IntoStaticStr)]
 pub enum Directive {
@@ -91,14 +106,12 @@ pub enum Directive {
     ENDIF,
 }
 
-
 impl Directive {
     pub fn is_directive(s: &str) -> bool {
         let key = s.strip_prefix('.').unwrap_or(" ");
         Directive::from_str(key).is_ok()
     }
 }
-
 
 #[derive(Clone, Copy, Debug, EnumString, IntoStaticStr)]
 pub enum Opcode {
@@ -158,6 +171,7 @@ pub enum Opcode {
     TXA,
     TXS,
     TYA,
+    INVALID_OPCODE,
 }
 
 impl Opcode {

@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use crate::{
     ast::*,
     error::CompileError,
@@ -8,7 +10,6 @@ use crate::{
 pub fn parse(source: &str) -> Result<(), Vec<CompileError>> {
     Ok(())
 }
-
 
 struct Parser<'source> {
     lexer: Lexer<'source>,
@@ -31,17 +32,19 @@ impl<'source> Parser<'source> {
         }
     }
 
-    fn parse_assembly(&mut self) -> Program {
+    fn parse_program(&mut self) -> Program {
         let start_loc = self.current.span;
         let mut items = Vec::new();
         while !self.at_end() {
-
+            if self.is_opcode() {
+                items.push(ProgramItem::Instruction(self.parse_instruction()));
+            }
         }
 
         Program {
             id: next_node_id(),
             span: self.span_from(start_loc),
-            items
+            items,
         }
     }
 
@@ -86,6 +89,26 @@ impl<'source> Parser<'source> {
         self.errors.push(CompileError { message, span });
     }
 
+    /// Parse opcode and operands
+    fn parse_instruction(&mut self) -> Instruction {
+        let loc = self.current.span;
+        let opcode = match Opcode::from_str(self.current.text.to_uppercase().as_str()) {
+            Ok(opcode) => opcode,
+            Err(_) => {
+                self.error(format!("Invalid opcode: {}", self.current.text), loc);
+                Opcode::INVALID_OPCODE
+            }
+        };
+        let mut operands = Vec::new();
+
+        Instruction {
+            id: next_node_id(),
+            span: self.span_from(loc),
+            opcode,
+            operands,
+        }
+    }
+
     /// Parse identifier definition
     fn parse_ident(&mut self) -> Ident {
         let loc = self.current.span;
@@ -97,5 +120,13 @@ impl<'source> Parser<'source> {
             span: loc,
             value: name,
         }
+    }
+
+    fn is_opcode(&self) -> bool {
+        self.current.kind == TokenKind::Opcode
+    }
+
+    fn is_preprocessor(&self) -> bool {
+        self.current.kind == TokenKind::Preprocessor
     }
 }
