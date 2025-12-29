@@ -129,7 +129,7 @@ impl Directive {
     }
 }
 
-#[derive(Clone, Copy, Debug, EnumString, IntoStaticStr)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, EnumString, IntoStaticStr)]
 pub enum Opcode {
     ADC,
     AND,

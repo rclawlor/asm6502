@@ -45,6 +45,8 @@ impl<'source> Parser<'source> {
         while !self.at_end() {
             if self.is_opcode() {
                 items.push(ProgramItem::Instruction(self.parse_instruction()));
+            } else {
+                self.advance();
             }
         }
 
@@ -106,6 +108,7 @@ impl<'source> Parser<'source> {
                 Opcode::INVALID_OPCODE
             }
         };
+        self.advance();
         let mut operands = Vec::new();
         loop {
             match self.current.kind {
@@ -127,7 +130,11 @@ impl<'source> Parser<'source> {
                 TokenKind::LeftBracket => operands.push(Operand::LeftBracket),
                 TokenKind::RightBracket => operands.push(Operand::RightBracket),
                 TokenKind::Ident => operands.push(Operand::Ident(self.parse_ident())),
-                _ => break,
+                TokenKind::Number => operands.push(Operand::Number(self.parse_number())),
+                _ => {
+                    self.advance();
+                    break
+                },
             }
             self.advance();
         }
@@ -137,6 +144,37 @@ impl<'source> Parser<'source> {
             span: self.span_from(loc),
             opcode,
             operands,
+        }
+    }
+
+    fn parse_number(&mut self) -> Number {
+        let loc = self.current.span;
+        let base = match &self.current.text.chars().next() {
+            Some('$') => 16,
+            Some('%') => 2,
+            Some(_) => 10,
+            None => {
+                self.error(format!("Expected number, got '{}'", self.current.text), loc);
+                10
+            },
+        };
+        let s = if base != 10 {
+            &self.current.text[1..]
+        } else {
+            self.current.text
+        };
+        let value = match i16::from_str_radix(s, base) {
+            Ok(value) => value,
+            Err(_) => {
+                self.error(format!("Unable to parse number '{}'", self.current.text), loc);
+                0
+            }
+        };
+
+        Number {
+            id: next_node_id(),
+            span: self.span_from(loc),
+            value
         }
     }
 
@@ -159,5 +197,45 @@ impl<'source> Parser<'source> {
 
     fn is_preprocessor(&self) -> bool {
         self.current.kind == TokenKind::Preprocessor
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_empty() {
+        let program = parse("").unwrap();
+        assert_eq!(program.items.len(), 0);
+    }
+
+    #[test]
+    fn test_whitespace_only() {
+        let program = parse("  \t\n\r ").unwrap();
+        assert_eq!(program.items.len(), 0);
+    }
+
+    #[test]
+    fn test_instruction() {
+        let program = parse("LDA #$10").unwrap();
+        assert_eq!(program.items.len(), 1);
+        match &program.items[0] {
+            ProgramItem::Instruction(instr) => {
+                println!("{:#?}", instr);
+                assert_eq!(instr.opcode, Opcode::LDA);
+                assert_eq!(instr.operands.len(), 2);
+                match &instr.operands[1] {
+                    Operand::Number(x) => assert_eq!(x.value, 0x10),
+                    other => assert!(
+                        false, "Expected number, got {:#?}", other
+                    ),
+                }
+            },
+            other => assert!(
+                false, "Expected instruction, got {:#?}", other
+            ),
+        }
     }
 }
