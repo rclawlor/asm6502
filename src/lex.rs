@@ -1,32 +1,33 @@
-use std::str::{CharIndices, FromStr};
+use std::str::CharIndices;
 
 use phf::phf_map;
-use strum::{EnumString, IntoStaticStr};
 use unicode_ident::{is_xid_continue, is_xid_start};
 
-use crate::ast::Span;
+use crate::ast::{Directive, Span};
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TokenKind {
     // Keywords
-    Opcode,    // e.g. LDA
-    RegisterA, // "A"
-    RegisterX, // "X"
-    RegisterY, // "Y"
+    Opcode,         // e.g. LDA
+    RegisterA,      // "A"
+    RegisterX,      // "X"
+    RegisterY,      // "Y"
+    Preprocessor,   // e.g. .include
 
     // Delimiters
-    Comma,        // ","
-    LeftBracket,  // "("
-    RightBracket, // ")"
+    Comma,          // ","
+    LeftBracket,    // "("
+    RightBracket,   // ")"
 
     // Identifiers
-    Number, // [0-9]+
-    Ident,  // XID_Start XID_Continue*
+    Number,         // [0-9]+
+    Ident,          // XID_Start XID_Continue*
 
     // Special tokens
-    Colon,     // ":"
-    SemiColon, // ";"
-    Hash,      // "#"
+    Colon,          // ":"
+    SemiColon,      // ";"
+    Hash,           // "#"
 
     // Other
     InvalidToken,
@@ -98,6 +99,21 @@ impl<'source> Lexer<'source> {
                         continue;
                     }
                     TokenKind::SemiColon
+                }
+
+                // Preprocessor
+                '.' => {
+                    self.advance();
+                    while is_xid_continue(self.peek_char()) {
+                        self.advance();
+                    }
+
+                    let text = &self.source[start_pos..self.pos];
+                    if Directive::is_directive(text.to_uppercase().as_str()) {
+                        TokenKind::Preprocessor
+                    } else {
+                        TokenKind::InvalidToken
+                    }
                 }
 
                 // Numbers
@@ -212,73 +228,6 @@ static KEYWORDS: phf::Map<&'static str, TokenKind> = phf_map! {
 };
 
 
-#[derive(EnumString, IntoStaticStr)]
-pub enum Opcode {
-    ADC,
-    AND,
-    ASL,
-    BCC,
-    BCS,
-    BEQ,
-    BIT,
-    BMI,
-    BNE,
-    BPL,
-    BRK,
-    BVC,
-    BVS,
-    CLC,
-    CLD,
-    CLI,
-    CLV,
-    CMP,
-    CPX,
-    CPY,
-    DEC,
-    DEX,
-    DEY,
-    EOR,
-    INC,
-    INX,
-    INY,
-    JMP,
-    JSR,
-    LDA,
-    LDX,
-    LDY,
-    LSR,
-    NOP,
-    ORA,
-    PHA,
-    PHP,
-    PLA,
-    PLP,
-    ROL,
-    ROR,
-    RTI,
-    RTS,
-    SBC,
-    SEC,
-    SED,
-    SEI,
-    STA,
-    STX,
-    STY,
-    TAX,
-    TAY,
-    TSX,
-    TXA,
-    TXS,
-    TYA,
-}
-
-impl Opcode {
-    pub fn is_opcode(s: &str) -> bool {
-        Opcode::from_str(s).is_ok()
-    }
-}
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -340,7 +289,6 @@ mod tests {
     #[test]
     fn test_numbers() {
         let tokens = lex("0 00 10 234 0x10 $10 $FF10");
-        println!("{:#?}", tokens);
         assert_eq!(tokens.len(), 7 + 1);
         assert_eq!(tokens[0].kind, TokenKind::Number);
         assert_eq!(tokens[0].text, "0");
@@ -357,5 +305,16 @@ mod tests {
         assert_eq!(tokens[6].kind, TokenKind::Number);
         assert_eq!(tokens[6].text, "$FF10");
         assert_eq!(tokens[7].kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_preprocessor() {
+        let tokens = lex(".include .INCLUDE .ifdef .endif");
+        assert_eq!(tokens.len(), 4 + 1);
+        assert_eq!(tokens[0].kind, TokenKind::Preprocessor);
+        assert_eq!(tokens[1].kind, TokenKind::Preprocessor);
+        assert_eq!(tokens[2].kind, TokenKind::Preprocessor);
+        assert_eq!(tokens[3].kind, TokenKind::Preprocessor);
+        assert_eq!(tokens[4].kind, TokenKind::Eof);
     }
 }

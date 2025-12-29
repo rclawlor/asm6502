@@ -3,7 +3,9 @@ use clap::Parser;
 // Local
 mod ast;
 mod error;
-mod lexer;
+mod lex;
+mod parse;
+
 
 #[derive(Parser)]
 #[command(version, about)]
