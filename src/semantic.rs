@@ -4,7 +4,7 @@ use phf::phf_map;
 
 use crate::{ast::*, error::CompileError};
 
-pub fn semantic_analysis(ast: &Program) -> Result<(), Vec<CompileError>> {
+pub fn semantic_analysis(ast: &Program) -> Result<Program, Vec<CompileError>> {
     let mut resolver = SymbolResolver::new();
     let new_ast = resolver.resolve(ast);
     if !resolver.errors.is_empty() {
@@ -14,7 +14,7 @@ pub fn semantic_analysis(ast: &Program) -> Result<(), Vec<CompileError>> {
     let mut analyser = SemanticAnalyser::new();
     analyser.analyse(&new_ast);
     if analyser.errors.is_empty() {
-        Ok(())
+        Ok(new_ast)
     } else {
         Err(analyser.errors)
     }
@@ -49,14 +49,6 @@ impl SymbolResolver {
             match item {
                 ProgramItem::Preprocessor(pp) => self.resolve_preprocessor(pp),
                 ProgramItem::Instruction(instr) => self.resolve_instruction(instr),
-                ProgramItem::Number(n) => {
-                    self.error(String::from("Unexpected number definition"), n.span, None)
-                }
-                ProgramItem::Ident(ident) => self.error(
-                    String::from("Unexpected identity definition"),
-                    ident.span,
-                    None,
-                ),
             }
         }
         let mut new_ast = ast.clone();
@@ -131,21 +123,36 @@ impl SymbolResolver {
     }
 }
 
+struct AnalysedInstruction {
+    opcode: Opcode,
+    mode: AddressMode,
+    operand: Option<i32>,
+}
+
 struct SemanticAnalyser {
+    instructions: Vec<AnalysedInstruction>,
     errors: Vec<CompileError>,
 }
 
 impl SemanticAnalyser {
     fn new() -> Self {
-        SemanticAnalyser { errors: Vec::new() }
+        SemanticAnalyser { instructions: Vec::new(), errors: Vec::new() }
     }
 
     fn analyse(&mut self, ast: &Program) {
         for item in &ast.items {
-            match item {
+            let instruction = match item {
                 ProgramItem::Instruction(instr) => self.analyse_instruction(instr),
-                _ => (),
-            }
+                ProgramItem::Preprocessor(pp) => {
+                    self.error(
+                        String::from("Preprocessor should be resolved before semantic analysis"),
+                        pp.span,
+                        None
+                    );
+                    return;
+                }
+            };
+            self.instructions.push(instruction);
         }
     }
 
@@ -158,28 +165,28 @@ impl SemanticAnalyser {
         });
     }
 
-    fn analyse_instruction(&mut self, instr: &Instruction) {
-        let addr_mode = match &instr.operands[..] {
+    fn analyse_instruction(&mut self, instr: &Instruction) -> AnalysedInstruction {
+        let (mode, operand) = match &instr.operands[..] {
             // Accumulator or implied
             [] => {
                 if instr.opcode.is_implied_accumulator() {
-                    AddressMode::ImpliedAccumulator
+                    (AddressMode::ImpliedAccumulator, None)
                 } else {
-                    AddressMode::Implied
+                    (AddressMode::Implied, None)
                 }
             }
             // Absolute or zero-page
             [Operand::Number(n)] => {
                 if n.value > 0xFF {
-                    AddressMode::Absolute
+                    (AddressMode::Absolute, Some(n.value))
                 } else {
-                    AddressMode::ZeroPage
+                    (AddressMode::ZeroPage, Some(n.value))
                 }
             }
             // Absolute, X-indexed
-            [Operand::Number(_), Operand::Register(Register::X)] => AddressMode::AbsoluteXIdx,
+            [Operand::Number(n), Operand::Register(Register::X)] => (AddressMode::AbsoluteXIdx, Some(n.value)),
             // Absolute, Y-indexed
-            [Operand::Number(_), Operand::Register(Register::Y)] => AddressMode::AbsoluteYIdx,
+            [Operand::Number(n), Operand::Register(Register::Y)] => (AddressMode::AbsoluteYIdx, Some(n.value)),
             // Immediate
             [Operand::Immediate, Operand::Number(n)] => {
                 if n.value > 0xFF {
@@ -192,10 +199,10 @@ impl SemanticAnalyser {
                         None,
                     )
                 }
-                AddressMode::Immediate
+                (AddressMode::Immediate, Some(n.value))
             }
             // Indirect
-            [Operand::LBracket, Operand::Number(_), Operand::RBracket] => AddressMode::Indirect,
+            [Operand::LBracket, Operand::Number(n), Operand::RBracket] => (AddressMode::Indirect, Some(n.value)),
             // X-indexed, indirect
             [Operand::LBracket, Operand::Number(n), Operand::Idx, Operand::Register(Register::X), Operand::RBracket] =>
             {
@@ -209,7 +216,7 @@ impl SemanticAnalyser {
                         None,
                     )
                 }
-                AddressMode::IndirectXIdx
+                (AddressMode::IndirectXIdx, Some(n.value))
             }
             // Y-indexed, indirect
             [Operand::LBracket, Operand::Number(n), Operand::RBracket, Operand::Idx, Operand::Register(Register::Y)] =>
@@ -224,7 +231,7 @@ impl SemanticAnalyser {
                         None,
                     )
                 }
-                AddressMode::IndirectYIdx
+                (AddressMode::IndirectYIdx, Some(n.value))
             }
             // Zeropage, X-indexed
             [Operand::Number(n), Operand::Idx, Operand::Register(Register::X)] => {
@@ -238,7 +245,7 @@ impl SemanticAnalyser {
                         None,
                     )
                 }
-                AddressMode::ZeroPageXIdx
+                (AddressMode::ZeroPageXIdx, Some(n.value))
             }
             // Zeropage, Y-indexed
             [Operand::Number(n), Operand::Idx, Operand::Register(Register::Y)] => {
@@ -252,7 +259,7 @@ impl SemanticAnalyser {
                         None,
                     )
                 }
-                AddressMode::ZeroPageYIdx
+                (AddressMode::ZeroPageYIdx, Some(n.value))
             }
             _ => {
                 self.error(
@@ -260,9 +267,15 @@ impl SemanticAnalyser {
                     instr.span,
                     Some(instr.opcode.as_help_str()),
                 );
-                AddressMode::Immediate
+                (AddressMode::Immediate, None)
             }
         };
+
+        AnalysedInstruction {
+            opcode: instr.opcode,
+            mode,
+            operand,
+        }
     }
 }
 

@@ -201,7 +201,7 @@ impl<'source> Parser<'source> {
         } else {
             self.current.text
         };
-        let value = match i16::from_str_radix(s, base) {
+        let value = match i32::from_str_radix(s, base) {
             Ok(value) => value,
             Err(_) => {
                 self.error(

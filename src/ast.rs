@@ -46,8 +46,6 @@ pub struct Program {
 pub enum ProgramItem {
     Preprocessor(Preprocessor),
     Instruction(Instruction),
-    Number(Number),
-    Ident(Ident),
 }
 
 #[derive(Debug, Clone)]
@@ -106,7 +104,7 @@ impl Register {
 pub struct Number {
     pub id: NodeId,
     pub span: Span,
-    pub value: i16,
+    pub value: i32,
 }
 
 #[derive(Debug, Clone)]
