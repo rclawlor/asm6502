@@ -14,7 +14,6 @@ pub fn semantic_analysis(ast: &Program) -> Result<(), Vec<CompileError>> {
     Ok(())
 }
 
-
 struct SymbolResolver {
     symbol_table: HashMap<String, DirectiveItem>,
     errors: Vec<CompileError>,
@@ -35,10 +34,9 @@ impl SymbolResolver {
 
     fn resolve(&mut self, ast: &Program) {
         for item in &ast.items {
-            println!("{:#?}", item);
             match item {
                 ProgramItem::Preprocessor(pp) => self.resolve_preprocessor(pp),
-                _ => ()
+                _ => (),
             }
         }
     }
@@ -49,25 +47,24 @@ impl SymbolResolver {
                 if pp.args.len() == 2 {
                     match &pp.args[0] {
                         DirectiveItem::Ident(ident) => {
-                            self.symbol_table.insert(ident.value.clone(), pp.args[1].clone());
-                        },
-                        _ => self.error(format!("'.set' requires a variable name"), pp.span),
+                            self.symbol_table
+                                .insert(ident.value.clone(), pp.args[1].clone());
+                        }
+                        _ => self.error(String::from("'.set' requires a variable name"), pp.span),
                     }
                 } else {
                     self.error(
                         format!("'.set' requires 2 arguments, got {}", pp.args.len()),
-                        pp.span
+                        pp.span,
                     );
                 }
-            },
-            _ => panic!("Not implemented")
+            }
+            _ => panic!("Not implemented"),
         }
     }
 }
 
-
 struct SemanticAnalyser {}
-
 
 impl SemanticAnalyser {
     fn new() -> Self {
@@ -77,21 +74,18 @@ impl SemanticAnalyser {
     fn analyse(&self, ast: &Program) {
         for item in &ast.items {
             match item {
-                ProgramItem::Instruction(instr) => {
-                    self.analyse_instruction(instr)
-                },
-                _ => ()
+                ProgramItem::Instruction(instr) => self.analyse_instruction(instr),
+                _ => (),
             }
         }
     }
 
     fn analyse_instruction(&self, instr: &Instruction) {
         let addr_mode = match instr.operands[..] {
-            _ => ()
+            _ => (),
         };
     }
 }
-
 
 enum AddressingMode {
     /// OPC A

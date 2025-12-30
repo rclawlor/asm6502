@@ -59,11 +59,10 @@ impl<'source> Parser<'source> {
         while !self.at_end() {
             if self.is_opcode() {
                 items.push(ProgramItem::Instruction(self.parse_instruction()));
-            }
-            else if self.is_preprocessor() {
+            } else if self.is_preprocessor() {
                 items.push(ProgramItem::Preprocessor(self.parse_preprocessor()));
-            }
-            else {
+            } else {
+                self.error(String::from("Unexpected token"), self.current.span);
                 self.advance();
             }
         }
@@ -191,6 +190,7 @@ impl<'source> Parser<'source> {
                 0
             }
         };
+        self.expect_token(TokenKind::Number);
 
         Number {
             id: next_node_id(),
@@ -221,7 +221,7 @@ impl<'source> Parser<'source> {
         StringLiteral {
             id: next_node_id(),
             span: loc,
-            value
+            value,
         }
     }
 
@@ -238,14 +238,13 @@ impl<'source> Parser<'source> {
         };
         self.advance();
         let mut args = Vec::new();
-        loop {
+        while args.len() < 2 {
             match self.current.kind {
                 TokenKind::Ident => args.push(DirectiveItem::Ident(self.parse_ident())),
                 TokenKind::Number => args.push(DirectiveItem::Number(self.parse_number())),
                 TokenKind::String => args.push(DirectiveItem::String(self.parse_string())),
                 _ => break,
             }
-            self.advance();
         }
 
         Preprocessor {
@@ -287,7 +286,6 @@ mod tests {
         assert_eq!(program.items.len(), 1);
         match &program.items[0] {
             ProgramItem::Instruction(instr) => {
-                println!("{:#?}", instr);
                 assert_eq!(instr.opcode, Opcode::Lda);
                 assert_eq!(instr.operands.len(), 2);
                 match &instr.operands[1] {

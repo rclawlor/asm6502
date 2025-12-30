@@ -3,7 +3,10 @@ use std::str::CharIndices;
 use phf::phf_map;
 use unicode_ident::{is_xid_continue, is_xid_start};
 
-use crate::{ast::{Directive, Span}, parse::capitalise};
+use crate::{
+    ast::{Directive, Span},
+    parse::capitalise,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TokenKind {
@@ -305,7 +308,6 @@ mod tests {
     #[test]
     fn test_numbers() {
         let tokens = lex("0 $F0 %101 234 $10 $FF10");
-        println!("{:#?}", tokens);
         assert_eq!(tokens.len(), 6 + 1);
         assert_eq!(tokens[0].kind, TokenKind::Number);
         assert_eq!(tokens[0].text, "0");
