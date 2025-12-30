@@ -59,7 +59,7 @@ pub struct Preprocessor {
 pub enum DirectiveItem {
     Number(Number),
     Ident(Ident),
-    String(String),
+    String(StringLiteral),
 }
 
 #[derive(Debug, Clone)]
@@ -113,8 +113,16 @@ pub struct Ident {
     pub value: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct StringLiteral {
+    pub id: NodeId,
+    pub span: Span,
+    pub value: String,
+}
+
 #[derive(Clone, Copy, Debug, EnumString, IntoStaticStr)]
 pub enum Directive {
+    Set,
     Include,
     Define,
     Ifdef,
@@ -124,8 +132,7 @@ pub enum Directive {
 
 impl Directive {
     pub fn is_directive(s: &str) -> bool {
-        let key = s.strip_prefix('.').unwrap_or(" ");
-        Directive::from_str(key).is_ok()
+        Directive::from_str(s).is_ok()
     }
 }
 

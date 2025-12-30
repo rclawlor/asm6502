@@ -7,8 +7,9 @@ mod ast;
 mod error;
 mod lex;
 mod parse;
+mod semantic;
 
-use crate::assemble::assemble;
+use crate::{assemble::assemble, semantic::semantic_analysis};
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -25,6 +26,10 @@ fn main() {
         eprintln!("Error reading file '{}': {}", args.file.display(), err);
         std::process::exit(1);
     });
+    let filename = args.file.to_string_lossy().to_string();
 
-    assemble(&source, &args.file);
+    let ast = assemble(&source, &filename);
+    if let Some(err) = semantic_analysis(&ast).err() {
+        error::report_errors(&source, &filename, &err);
+    };
 }

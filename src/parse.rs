@@ -18,6 +18,20 @@ pub fn parse(source: &str) -> Result<Program, Vec<CompileError>> {
     }
 }
 
+/// Capitalise an ASCII string
+pub fn capitalise(s: &str) -> String {
+    s.chars()
+        .enumerate()
+        .map(|(idx, c)| {
+            if idx == 0 {
+                c.to_ascii_uppercase()
+            } else {
+                c.to_ascii_lowercase()
+            }
+        })
+        .collect()
+}
+
 struct Parser<'source> {
     lexer: Lexer<'source>,
     current: Token<'source>,
@@ -45,7 +59,11 @@ impl<'source> Parser<'source> {
         while !self.at_end() {
             if self.is_opcode() {
                 items.push(ProgramItem::Instruction(self.parse_instruction()));
-            } else {
+            }
+            else if self.is_preprocessor() {
+                items.push(ProgramItem::Preprocessor(self.parse_preprocessor()));
+            }
+            else {
                 self.advance();
             }
         }
@@ -101,19 +119,7 @@ impl<'source> Parser<'source> {
     /// Parse opcode and operands
     fn parse_instruction(&mut self) -> Instruction {
         let loc = self.current.span;
-        let key: String = self
-            .current
-            .text
-            .chars()
-            .enumerate()
-            .map(|(idx, c)| {
-                if idx == 0 {
-                    c.to_uppercase().next().unwrap()
-                } else {
-                    c.to_lowercase().next().unwrap()
-                }
-            })
-            .collect();
+        let key = capitalise(self.current.text);
         let opcode = match Opcode::from_str(key.as_str()) {
             Ok(opcode) => opcode,
             Err(_) => {
@@ -145,7 +151,6 @@ impl<'source> Parser<'source> {
                 TokenKind::Ident => operands.push(Operand::Ident(self.parse_ident())),
                 TokenKind::Number => operands.push(Operand::Number(self.parse_number())),
                 _ => {
-                    self.advance();
                     break;
                 }
             }
@@ -204,6 +209,50 @@ impl<'source> Parser<'source> {
             id: next_node_id(),
             span: loc,
             value: name,
+        }
+    }
+
+    /// Parse a string literal
+    fn parse_string(&mut self) -> StringLiteral {
+        let loc = self.current.span;
+        let value = self.current.text.to_string();
+        self.expect_token(TokenKind::String);
+
+        StringLiteral {
+            id: next_node_id(),
+            span: loc,
+            value
+        }
+    }
+
+    /// Parse preprocessor and operands
+    fn parse_preprocessor(&mut self) -> Preprocessor {
+        let loc = self.current.span;
+        let key = capitalise(self.current.text.strip_prefix('.').unwrap());
+        let directive = match Directive::from_str(key.as_str()) {
+            Ok(directive) => directive,
+            Err(_) => {
+                self.error(format!("Invalid directive: {}", self.current.text), loc);
+                Directive::Set
+            }
+        };
+        self.advance();
+        let mut args = Vec::new();
+        loop {
+            match self.current.kind {
+                TokenKind::Ident => args.push(DirectiveItem::Ident(self.parse_ident())),
+                TokenKind::Number => args.push(DirectiveItem::Number(self.parse_number())),
+                TokenKind::String => args.push(DirectiveItem::String(self.parse_string())),
+                _ => break,
+            }
+            self.advance();
+        }
+
+        Preprocessor {
+            id: next_node_id(),
+            span: self.span_from(loc),
+            directive,
+            args,
         }
     }
 

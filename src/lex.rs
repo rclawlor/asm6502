@@ -3,7 +3,7 @@ use std::str::CharIndices;
 use phf::phf_map;
 use unicode_ident::{is_xid_continue, is_xid_start};
 
-use crate::ast::{Directive, Span};
+use crate::{ast::{Directive, Span}, parse::capitalise};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TokenKind {
@@ -108,8 +108,10 @@ impl<'source> Lexer<'source> {
                         self.advance();
                     }
 
-                    let text = &self.source[start_pos..self.pos];
-                    if Directive::is_directive(text.to_uppercase().as_str()) {
+                    let text = &self.source[start_pos..self.pos]
+                        .strip_prefix('.')
+                        .expect("Already checked to start with '.' above");
+                    if Directive::is_directive(&capitalise(text)) {
                         TokenKind::Preprocessor
                     } else {
                         TokenKind::InvalidToken
