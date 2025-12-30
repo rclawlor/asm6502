@@ -6,6 +6,7 @@ use std::fmt;
 pub struct CompileError {
     pub message: String,
     pub span: Span,
+    pub help: Option<String>,
 }
 
 impl fmt::Display for CompileError {
@@ -28,6 +29,11 @@ pub fn report_errors(source: &str, filename: &str, errors: &[CompileError]) {
                 .with_message(&error.message)
                 .with_color(Color::Red),
         )
+        .with_help(if let Some(h) = &error.help {
+            h.as_str()
+        } else {
+            ""
+        })
         .finish()
         .eprint((filename, Source::from(source)))
         .unwrap();

@@ -200,4 +200,8 @@ impl Opcode {
     pub fn is_opcode(s: &str) -> bool {
         Opcode::from_str(s).is_ok()
     }
+
+    pub fn is_implied_accumulator(&self) -> bool {
+        matches!(self, Self::Asl | Self::Rol | Self::Lsr | Self::Ror)
+    }
 }

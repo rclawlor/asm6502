@@ -62,7 +62,7 @@ impl<'source> Parser<'source> {
             } else if self.is_preprocessor() {
                 items.push(ProgramItem::Preprocessor(self.parse_preprocessor()));
             } else {
-                self.error(String::from("Unexpected token"), self.current.span);
+                self.error(String::from("Unexpected token"), self.current.span, None);
                 self.advance();
             }
         }
@@ -79,7 +79,7 @@ impl<'source> Parser<'source> {
             self.advance();
         } else {
             let message = format!("Expected {:?} but found {:?}", kind, self.current.kind);
-            self.error(message, self.current.span);
+            self.error(message, self.current.span, None);
             if !self.at_end() {
                 self.advance();
             }
@@ -111,8 +111,12 @@ impl<'source> Parser<'source> {
     }
 
     /// Append new error message
-    fn error(&mut self, message: String, span: Span) {
-        self.errors.push(CompileError { message, span });
+    fn error(&mut self, message: String, span: Span, help: Option<String>) {
+        self.errors.push(CompileError {
+            message,
+            span,
+            help,
+        });
     }
 
     /// Parse opcode and operands
@@ -122,11 +126,11 @@ impl<'source> Parser<'source> {
         let opcode = match Opcode::from_str(key.as_str()) {
             Ok(opcode) => opcode,
             Err(_) => {
-                self.error(format!("Invalid opcode: {}", self.current.text), loc);
+                self.error(format!("Invalid opcode: {}", self.current.text), loc, None);
                 Opcode::Adc
             }
         };
-        self.advance();
+        self.expect_token(TokenKind::Opcode);
         let mut operands = Vec::new();
         loop {
             match self.current.kind {
@@ -137,23 +141,36 @@ impl<'source> Parser<'source> {
                             self.error(
                                 format!("Invalid register: {:#?}", self.current.kind),
                                 self.current.span,
+                                None,
                             );
                             Register::A
                         }
                     };
                     operands.push(Operand::Register(register));
+                    self.advance();
                 }
-                TokenKind::Hash => operands.push(Operand::Immediate),
-                TokenKind::Comma => operands.push(Operand::Index),
-                TokenKind::LeftBracket => operands.push(Operand::LeftBracket),
-                TokenKind::RightBracket => operands.push(Operand::RightBracket),
+                TokenKind::Hash => {
+                    operands.push(Operand::Immediate);
+                    self.advance();
+                }
+                TokenKind::Comma => {
+                    operands.push(Operand::Index);
+                    self.advance();
+                }
+                TokenKind::LeftBracket => {
+                    operands.push(Operand::LeftBracket);
+                    self.advance();
+                }
+                TokenKind::RightBracket => {
+                    operands.push(Operand::RightBracket);
+                    self.advance();
+                }
                 TokenKind::Ident => operands.push(Operand::Ident(self.parse_ident())),
                 TokenKind::Number => operands.push(Operand::Number(self.parse_number())),
                 _ => {
                     break;
                 }
             }
-            self.advance();
         }
 
         Instruction {
@@ -171,7 +188,11 @@ impl<'source> Parser<'source> {
             Some('%') => 2,
             Some(_) => 10,
             None => {
-                self.error(format!("Expected number, got '{}'", self.current.text), loc);
+                self.error(
+                    format!("Expected number, got '{}'", self.current.text),
+                    loc,
+                    None,
+                );
                 10
             }
         };
@@ -186,6 +207,7 @@ impl<'source> Parser<'source> {
                 self.error(
                     format!("Unable to parse number '{}'", self.current.text),
                     loc,
+                    None,
                 );
                 0
             }
@@ -232,11 +254,15 @@ impl<'source> Parser<'source> {
         let directive = match Directive::from_str(key.as_str()) {
             Ok(directive) => directive,
             Err(_) => {
-                self.error(format!("Invalid directive: {}", self.current.text), loc);
+                self.error(
+                    format!("Invalid directive: {}", self.current.text),
+                    loc,
+                    None,
+                );
                 Directive::Set
             }
         };
-        self.advance();
+        self.expect_token(TokenKind::Preprocessor);
         let mut args = Vec::new();
         while args.len() < 2 {
             match self.current.kind {
