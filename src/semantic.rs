@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use phf::{phf_map, Map};
+
 use crate::{ast::*, error::CompileError};
 
 pub fn semantic_analysis(ast: &Program) -> Result<(), Vec<CompileError>> {
@@ -161,23 +163,23 @@ impl SemanticAnalyser {
             // Accumulator or implied
             [] => {
                 if instr.opcode.is_implied_accumulator() {
-                    AddressingMode::ImpliedAccumulator
+                    AddressMode::ImpliedAccumulator
                 } else {
-                    AddressingMode::Implied
+                    AddressMode::Implied
                 }
             }
             // Absolute or zero-page
             [Operand::Number(n)] => {
                 if n.value > 0xFF {
-                    AddressingMode::Absolute
+                    AddressMode::Absolute
                 } else {
-                    AddressingMode::ZeroPage
+                    AddressMode::ZeroPage
                 }
             }
             // Absolute, X-indexed
-            [Operand::Number(_), Operand::Register(Register::X)] => AddressingMode::AbsoluteXIdx,
+            [Operand::Number(_), Operand::Register(Register::X)] => AddressMode::AbsoluteXIdx,
             // Absolute, Y-indexed
-            [Operand::Number(_), Operand::Register(Register::Y)] => AddressingMode::AbsoluteYIdx,
+            [Operand::Number(_), Operand::Register(Register::Y)] => AddressMode::AbsoluteYIdx,
             // Immediate
             [Operand::Immediate, Operand::Number(n)] => {
                 if n.value > 0xFF {
@@ -190,14 +192,12 @@ impl SemanticAnalyser {
                         None,
                     )
                 }
-                AddressingMode::Immediate
+                AddressMode::Immediate
             }
             // Indirect
-            [Operand::LeftBracket, Operand::Number(_), Operand::RightBracket] => {
-                AddressingMode::Indirect
-            }
+            [Operand::LBracket, Operand::Number(_), Operand::RBracket] => AddressMode::Indirect,
             // X-indexed, indirect
-            [Operand::LeftBracket, Operand::Number(n), Operand::Index, Operand::Register(Register::X), Operand::RightBracket] =>
+            [Operand::LBracket, Operand::Number(n), Operand::Idx, Operand::Register(Register::X), Operand::RBracket] =>
             {
                 if n.value > 0xFF {
                     self.error(
@@ -209,10 +209,10 @@ impl SemanticAnalyser {
                         None,
                     )
                 }
-                AddressingMode::IndirectXIdx
+                AddressMode::IndirectXIdx
             }
             // Y-indexed, indirect
-            [Operand::LeftBracket, Operand::Number(n), Operand::RightBracket, Operand::Index, Operand::Register(Register::Y)] =>
+            [Operand::LBracket, Operand::Number(n), Operand::RBracket, Operand::Idx, Operand::Register(Register::Y)] =>
             {
                 if n.value > 0xFF {
                     self.error(
@@ -224,10 +224,10 @@ impl SemanticAnalyser {
                         None,
                     )
                 }
-                AddressingMode::IndirectYIdx
+                AddressMode::IndirectYIdx
             }
             // Zeropage, X-indexed
-            [Operand::Number(n), Operand::Index, Operand::Register(Register::X)] => {
+            [Operand::Number(n), Operand::Idx, Operand::Register(Register::X)] => {
                 if n.value > 0xFF {
                     self.error(
                         format!(
@@ -238,10 +238,10 @@ impl SemanticAnalyser {
                         None,
                     )
                 }
-                AddressingMode::ZeroPageXIdx
+                AddressMode::ZeroPageXIdx
             }
             // Zeropage, Y-indexed
-            [Operand::Number(n), Operand::Index, Operand::Register(Register::Y)] => {
+            [Operand::Number(n), Operand::Idx, Operand::Register(Register::Y)] => {
                 if n.value > 0xFF {
                     self.error(
                         format!(
@@ -252,17 +252,18 @@ impl SemanticAnalyser {
                         None,
                     )
                 }
-                AddressingMode::ZeroPageYIdx
+                AddressMode::ZeroPageYIdx
             }
             _ => {
                 self.error(String::from("Invalid addressing mode"), instr.span, None);
-                AddressingMode::Immediate
+                AddressMode::Immediate
             }
         };
     }
 }
 
-enum AddressingMode {
+#[derive(Copy, Clone)]
+pub enum AddressMode {
     /// OPC A
     ImpliedAccumulator,
     /// OPC $LLHH
@@ -290,3 +291,201 @@ enum AddressingMode {
     /// OPC $LL,Y
     ZeroPageYIdx,
 }
+
+pub static INSTRUCTION_SET: phf::Map<&'static str, &'static [(AddressMode, u8)]> = phf_map! {
+    "Adc" => &[
+        (AddressMode::Immediate,    0x69),
+        (AddressMode::ZeroPage,     0x65),
+        (AddressMode::ZeroPageXIdx, 0x75),
+        (AddressMode::Absolute,     0x6D),
+        (AddressMode::AbsoluteXIdx, 0x7D),
+        (AddressMode::AbsoluteYIdx, 0x79),
+        (AddressMode::IndirectXIdx, 0x61),
+        (AddressMode::IndirectYIdx, 0x71),
+    ],
+    "And" => &[
+        (AddressMode::Immediate,    0x29),
+        (AddressMode::ZeroPage,     0x25),
+        (AddressMode::ZeroPageXIdx, 0x35),
+        (AddressMode::Absolute,     0x2D),
+        (AddressMode::AbsoluteXIdx, 0x3D),
+        (AddressMode::AbsoluteYIdx, 0x39),
+        (AddressMode::IndirectXIdx, 0x21),
+        (AddressMode::IndirectYIdx, 0x31),
+    ],
+    "Asl" => &[
+        (AddressMode::ImpliedAccumulator, 0x0A),
+        (AddressMode::ZeroPage,           0x06),
+        (AddressMode::ZeroPageXIdx,       0x16),
+        (AddressMode::Absolute,           0x0E),
+        (AddressMode::AbsoluteXIdx,       0x1E),
+    ],
+    "Bcc" => &[(AddressMode::Relative, 0x90)],
+    "Bcs" => &[(AddressMode::Relative, 0xB0)],
+    "Beq" => &[(AddressMode::Relative, 0xF0)],
+    "Bit" => &[
+        (AddressMode::ZeroPage, 0x24),
+        (AddressMode::Absolute, 0x2C),
+    ],
+    "Bmi" => &[(AddressMode::Relative, 0x30)],
+    "Bne" => &[(AddressMode::Relative, 0xD0)],
+    "Bpl" => &[(AddressMode::Relative, 0x10)],
+    "Brk" => &[(AddressMode::Implied,  0x00)],
+    "Bvc" => &[(AddressMode::Relative, 0x50)],
+    "Bvs" => &[(AddressMode::Relative, 0x70)],
+    "Clc" => &[(AddressMode::Implied,  0x18)],
+    "Cld" => &[(AddressMode::Implied,  0xD8)],
+    "Cli" => &[(AddressMode::Implied,  0x58)],
+    "Clv" => &[(AddressMode::Implied,  0xB8)],
+    "Cmp" => &[
+        (AddressMode::Immediate,    0xC9),
+        (AddressMode::ZeroPage,     0xC5),
+        (AddressMode::ZeroPageXIdx, 0xD5),
+        (AddressMode::Absolute,     0xCD),
+        (AddressMode::AbsoluteXIdx, 0xDD),
+        (AddressMode::AbsoluteYIdx, 0xD9),
+        (AddressMode::IndirectXIdx, 0xC1),
+        (AddressMode::IndirectYIdx, 0xD1),
+    ],
+    "Cpx" => &[
+        (AddressMode::Immediate, 0xE0),
+        (AddressMode::ZeroPage,  0xE4),
+        (AddressMode::Absolute,  0xEC),
+    ],
+    "Cpy" => &[
+        (AddressMode::Immediate, 0xC0),
+        (AddressMode::ZeroPage,  0xC4),
+        (AddressMode::Absolute,  0xCC),
+    ],
+    "Dec" => &[
+        (AddressMode::ZeroPage,     0xC6),
+        (AddressMode::ZeroPageXIdx, 0xD6),
+        (AddressMode::Absolute,     0xCE),
+        (AddressMode::AbsoluteXIdx, 0xDE),
+    ],
+    "Dex" => &[(AddressMode::Implied, 0xCA)],
+    "Dey" => &[(AddressMode::Implied, 0x88)],
+    "Eor" => &[
+        (AddressMode::Immediate,    0x49),
+        (AddressMode::ZeroPage,     0x45),
+        (AddressMode::ZeroPageXIdx, 0x55),
+        (AddressMode::Absolute,     0x4D),
+        (AddressMode::AbsoluteXIdx, 0x5D),
+        (AddressMode::AbsoluteYIdx, 0x59),
+        (AddressMode::IndirectXIdx, 0x41),
+        (AddressMode::IndirectYIdx, 0x51),
+    ],
+    "Inc" => &[
+        (AddressMode::ZeroPage,     0xE6),
+        (AddressMode::ZeroPageXIdx, 0xF6),
+        (AddressMode::Absolute,     0xEE),
+        (AddressMode::AbsoluteXIdx, 0xFE),
+    ],
+    "Inx" => &[(AddressMode::Implied, 0xE8)],
+    "Iny" => &[(AddressMode::Implied, 0xC8)],
+    "Jmp" => &[
+        (AddressMode::Absolute, 0x4C),
+        (AddressMode::Indirect, 0x6C),
+    ],
+    "Jsr" => &[(AddressMode::Absolute, 0x20)],
+    "Lda" => &[
+        (AddressMode::Immediate,    0xA9),
+        (AddressMode::ZeroPage,     0xA5),
+        (AddressMode::ZeroPageXIdx, 0xB5),
+        (AddressMode::Absolute,     0xAD),
+        (AddressMode::AbsoluteXIdx, 0xBD),
+        (AddressMode::AbsoluteYIdx, 0xB9),
+        (AddressMode::IndirectXIdx, 0xA1),
+        (AddressMode::IndirectYIdx, 0xB1),
+    ],
+    "Ldx" => &[
+        (AddressMode::Immediate,    0xA2),
+        (AddressMode::ZeroPage,     0xA6),
+        (AddressMode::ZeroPageYIdx, 0xB6),
+        (AddressMode::Absolute,     0xAE),
+        (AddressMode::AbsoluteYIdx, 0xBE),
+    ],
+    "Ldy" => &[
+        (AddressMode::Immediate,    0xA0),
+        (AddressMode::ZeroPage,     0xA4),
+        (AddressMode::ZeroPageXIdx, 0xB4),
+        (AddressMode::Absolute,     0xAC),
+        (AddressMode::AbsoluteXIdx, 0xBC),
+    ],
+    "Lsr" => &[
+        (AddressMode::ImpliedAccumulator, 0x4A),
+        (AddressMode::ZeroPage,           0x46),
+        (AddressMode::ZeroPageXIdx,       0x56),
+        (AddressMode::Absolute,           0x4E),
+        (AddressMode::AbsoluteXIdx,       0x5E),
+    ],
+    "Nop" => &[(AddressMode::Absolute, 0xEA)],
+    "Ora" => &[
+        (AddressMode::Immediate,    0x09),
+        (AddressMode::ZeroPage,     0x05),
+        (AddressMode::ZeroPageXIdx, 0x15),
+        (AddressMode::Absolute,     0x0D),
+        (AddressMode::AbsoluteXIdx, 0x1D),
+        (AddressMode::AbsoluteYIdx, 0x19),
+        (AddressMode::IndirectXIdx, 0x01),
+        (AddressMode::IndirectYIdx, 0x11),
+    ],
+    "Pha" => &[(AddressMode::Implied, 0x48)],
+    "Php" => &[(AddressMode::Implied, 0x08)],
+    "Pla" => &[(AddressMode::Implied, 0x68)],
+    "Plp" => &[(AddressMode::Implied, 0x28)],
+    "Rol" => &[
+        (AddressMode::ImpliedAccumulator, 0x2A),
+        (AddressMode::ZeroPage,           0x26),
+        (AddressMode::ZeroPageXIdx,       0x36),
+        (AddressMode::Absolute,           0x2E),
+        (AddressMode::AbsoluteXIdx,       0x3E),
+    ],
+    "Ror" => &[
+        (AddressMode::ImpliedAccumulator, 0x6A),
+        (AddressMode::ZeroPage,           0x66),
+        (AddressMode::ZeroPageXIdx,       0x76),
+        (AddressMode::Absolute,           0x6E),
+        (AddressMode::AbsoluteXIdx,       0x7E),
+    ],
+    "Rti" => &[(AddressMode::Implied, 0x40)],
+    "Rts" => &[(AddressMode::Implied, 0x60)],
+    "Sbc" => &[
+        (AddressMode::Immediate,    0xE9),
+        (AddressMode::ZeroPage,     0xE5),
+        (AddressMode::ZeroPageXIdx, 0xF5),
+        (AddressMode::Absolute,     0xED),
+        (AddressMode::AbsoluteXIdx, 0xFD),
+        (AddressMode::AbsoluteYIdx, 0xF9),
+        (AddressMode::IndirectXIdx, 0xE1),
+        (AddressMode::IndirectYIdx, 0xF1),
+    ],
+    "Sec" => &[(AddressMode::Implied, 0x38)],
+    "Sed" => &[(AddressMode::Implied, 0xF8)],
+    "Sei" => &[(AddressMode::Implied, 0x78)],
+    "Sta" => &[
+        (AddressMode::ZeroPage,     0x85),
+        (AddressMode::ZeroPageXIdx, 0x95),
+        (AddressMode::Absolute,     0x8D),
+        (AddressMode::AbsoluteXIdx, 0x9D),
+        (AddressMode::AbsoluteYIdx, 0x99),
+        (AddressMode::IndirectXIdx, 0x81),
+        (AddressMode::IndirectYIdx, 0x91),
+    ],
+    "Stx" => &[
+        (AddressMode::ZeroPage,     0x86),
+        (AddressMode::ZeroPageYIdx, 0x96),
+        (AddressMode::Absolute,     0x8E),
+    ],
+    "Sty" => &[
+        (AddressMode::ZeroPage,     0x84),
+        (AddressMode::ZeroPageXIdx, 0x94),
+        (AddressMode::Absolute,     0x8C),
+    ],
+    "Tax" => &[(AddressMode::Implied, 0xAA)],
+    "Tay" => &[(AddressMode::Implied, 0xA8)],
+    "Tsx" => &[(AddressMode::Implied, 0xBA)],
+    "Txa" => &[(AddressMode::Implied, 0x8A)],
+    "Txs" => &[(AddressMode::Implied, 0x9A)],
+    "Tya" => &[(AddressMode::Implied, 0x98)]
+};

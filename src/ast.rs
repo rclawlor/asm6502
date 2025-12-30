@@ -1,8 +1,8 @@
 use std::{str::FromStr, sync::atomic::AtomicUsize};
 
-use strum::{EnumString, IntoStaticStr};
+use strum::{EnumString, IntoStaticStr, AsRefStr};
 
-use crate::lex::TokenKind;
+use crate::{lex::TokenKind, semantic::{AddressMode, INSTRUCTION_SET}};
 
 /// ID of AST node
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,9 +76,9 @@ pub enum Operand {
     Ident(Ident),
     Register(Register),
     Immediate,
-    Index,
-    LeftBracket,
-    RightBracket,
+    Idx,
+    LBracket,
+    RBracket,
 }
 
 #[derive(Debug, Clone)]
@@ -136,7 +136,7 @@ impl Directive {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, EnumString, IntoStaticStr)]
+#[derive(AsRefStr, Clone, Copy, Debug, Hash, PartialEq, Eq, EnumString, IntoStaticStr)]
 pub enum Opcode {
     Adc,
     And,
@@ -203,5 +203,13 @@ impl Opcode {
 
     pub fn is_implied_accumulator(&self) -> bool {
         matches!(self, Self::Asl | Self::Rol | Self::Lsr | Self::Ror)
+    }
+
+    pub fn address_modes(&self) -> Vec<AddressMode> {
+        INSTRUCTION_SET.get(self.as_ref())
+            .unwrap()
+            .iter()
+            .map(|(mode, _)| *mode)
+            .collect()
     }
 }

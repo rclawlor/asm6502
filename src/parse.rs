@@ -154,15 +154,15 @@ impl<'source> Parser<'source> {
                     self.advance();
                 }
                 TokenKind::Comma => {
-                    operands.push(Operand::Index);
+                    operands.push(Operand::Idx);
                     self.advance();
                 }
                 TokenKind::LeftBracket => {
-                    operands.push(Operand::LeftBracket);
+                    operands.push(Operand::LBracket);
                     self.advance();
                 }
                 TokenKind::RightBracket => {
-                    operands.push(Operand::RightBracket);
+                    operands.push(Operand::RBracket);
                     self.advance();
                 }
                 TokenKind::Ident => operands.push(Operand::Ident(self.parse_ident())),
