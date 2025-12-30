@@ -36,6 +36,7 @@ impl SymbolResolver {
         for item in &ast.items {
             match item {
                 ProgramItem::Preprocessor(pp) => self.resolve_preprocessor(pp),
+                ProgramItem::Instruction(instr) => self.resolve_instruction(instr),
                 _ => (),
             }
         }
@@ -60,6 +61,41 @@ impl SymbolResolver {
                 }
             }
             _ => panic!("Not implemented"),
+        }
+    }
+
+    fn resolve_instruction(&mut self, instr: &Instruction) {
+        let mut new_instr = instr.clone();
+        new_instr.operands.clear();
+        for item in &instr.operands {
+            if let Operand::Ident(ident) = item {
+                if let Some(v) = self.symbol_table.get(&ident.value) {
+                    match v {
+                        DirectiveItem::Number(n) => {
+                            new_instr.operands.push(Operand::Number(n.clone()));
+                        }
+                        DirectiveItem::String(s) => {
+                            self.error(
+                                format!("Expected number, got string {}", s.value),
+                                ident.span,
+                            );
+                        }
+                        DirectiveItem::Ident(i) => {
+                            self.error(
+                                format!("Expected number, got identity '{}'", i.value),
+                                ident.span,
+                            );
+                        }
+                    }
+                } else {
+                    self.error(
+                        format!("Could not find definition for '{}'", ident.value),
+                        ident.span,
+                    );
+                }
+            } else {
+                new_instr.operands.push(item.clone());
+            }
         }
     }
 }
