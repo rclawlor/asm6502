@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use phf::{phf_map, Map};
+use phf::phf_map;
 
 use crate::{ast::*, error::CompileError};
 
@@ -255,7 +255,11 @@ impl SemanticAnalyser {
                 AddressMode::ZeroPageYIdx
             }
             _ => {
-                self.error(String::from("Invalid addressing mode"), instr.span, None);
+                self.error(
+                    String::from("Invalid addressing mode"),
+                    instr.span,
+                    Some(instr.opcode.as_help_str()),
+                );
                 AddressMode::Immediate
             }
         };
@@ -290,6 +294,26 @@ pub enum AddressMode {
     ZeroPageXIdx,
     /// OPC $LL,Y
     ZeroPageYIdx,
+}
+
+impl AddressMode {
+    pub fn as_help_str(&self, opcode: &str) -> String {
+        match self {
+            Self::ImpliedAccumulator => format!("{opcode}         (accumulator)"),
+            Self::Absolute => format!("{opcode} $LLHH   (absolute)"),
+            Self::AbsoluteXIdx => format!("{opcode} $LLHH,X (absolute, x-indexed)"),
+            Self::AbsoluteYIdx => format!("{opcode} $LLHH,Y (absolute, y-indexed)"),
+            Self::Immediate => format!("{opcode} #$BB    (immediate)"),
+            Self::Implied => format!("{opcode}         (implied)"),
+            Self::Indirect => format!("{opcode} ($HH)   (indirect)"),
+            Self::IndirectXIdx => format!("{opcode} ($,X)   (indirect, x-indexed)"),
+            Self::IndirectYIdx => format!("{opcode} ($),Y   (indirect, y-indexed)"),
+            Self::Relative => format!("{opcode} $BB     (relative)"),
+            Self::ZeroPage => format!("{opcode} $LL     (zero-page)"),
+            Self::ZeroPageXIdx => format!("{opcode} $LL,X   (zero-page, x-indexed)"),
+            Self::ZeroPageYIdx => format!("{opcode} $LL,Y   (zero-page, y-indexed)"),
+        }
+    }
 }
 
 pub static INSTRUCTION_SET: phf::Map<&'static str, &'static [(AddressMode, u8)]> = phf_map! {

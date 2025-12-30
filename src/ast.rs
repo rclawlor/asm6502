@@ -1,8 +1,11 @@
 use std::{str::FromStr, sync::atomic::AtomicUsize};
 
-use strum::{EnumString, IntoStaticStr, AsRefStr};
+use strum::{AsRefStr, EnumString, IntoStaticStr};
 
-use crate::{lex::TokenKind, semantic::{AddressMode, INSTRUCTION_SET}};
+use crate::{
+    lex::TokenKind,
+    semantic::{AddressMode, INSTRUCTION_SET},
+};
 
 /// ID of AST node
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -206,10 +209,21 @@ impl Opcode {
     }
 
     pub fn address_modes(&self) -> Vec<AddressMode> {
-        INSTRUCTION_SET.get(self.as_ref())
+        INSTRUCTION_SET
+            .get(self.as_ref())
             .unwrap()
             .iter()
             .map(|(mode, _)| *mode)
             .collect()
+    }
+
+    pub fn as_help_str(&self) -> String {
+        let idn = self.as_ref().to_ascii_uppercase();
+        let modes: Vec<_> = self
+            .address_modes()
+            .iter()
+            .map(|x| format!(" - {}", x.as_help_str(&idn)))
+            .collect();
+        format!("Available addressing modes:\n{}", modes.join("\n"))
     }
 }
