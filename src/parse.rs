@@ -101,7 +101,20 @@ impl<'source> Parser<'source> {
     /// Parse opcode and operands
     fn parse_instruction(&mut self) -> Instruction {
         let loc = self.current.span;
-        let opcode = match Opcode::from_str(self.current.text.to_uppercase().as_str()) {
+        let key: String = self
+            .current
+            .text
+            .chars()
+            .enumerate()
+            .map(|(idx, c)| {
+                if idx == 0 {
+                    c.to_uppercase().next().unwrap()
+                } else {
+                    c.to_lowercase().next().unwrap()
+                }
+            })
+            .collect();
+        let opcode = match Opcode::from_str(key.as_str()) {
             Ok(opcode) => opcode,
             Err(_) => {
                 self.error(format!("Invalid opcode: {}", self.current.text), loc);
