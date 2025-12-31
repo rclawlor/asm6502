@@ -84,7 +84,7 @@ impl SymbolResolver {
                     );
                 }
             }
-            _ => panic!("Not implemented"),
+            Directive::Org => self.items.push(ProgramItem::Preprocessor(pp.clone())),
         }
     }
 
@@ -154,7 +154,7 @@ impl std::fmt::Display for AnalysedInstruction {
                     } else {
                         format!("{n:#02x}")
                     }
-                },
+                }
                 None => "".to_string(),
             }
         )
@@ -194,11 +194,27 @@ impl SemanticAnalyser {
                     self.instructions.push(i);
                 }
                 ProgramItem::Preprocessor(pp) => {
-                    self.error(
-                        String::from("Preprocessor should be resolved before semantic analysis"),
-                        pp.span,
-                        None,
-                    );
+                    if pp.directive == Directive::Org {
+                        match pp.args.first() {
+                            Some(DirectiveItem::Number(n)) => {
+                                self.address = u16::try_from(n.value).unwrap()
+                            }
+                            _ => self.error(
+                                String::from("Incorrect/missing argument"),
+                                pp.span,
+                                None,
+                            ),
+                        }
+                    } else {
+                        self.error(
+                            format!(
+                                "Preprocessor {:#?} should be resolved before semantic analysis",
+                                pp.directive,
+                            ),
+                            pp.span,
+                            None,
+                        );
+                    }
                 }
                 ProgramItem::Label(label) => self.analyse_label(&label),
             };
@@ -243,10 +259,12 @@ impl SemanticAnalyser {
                 if self.ast.labels.contains(s) {
                     if let Some(addr) = self.labels.get(s) {
                         if m == AddressMode::Relative {
-                            let mut diff = i32::from(*addr) - i32::from(self.address);
-                            if diff < -128 || diff > 127 {
+                            let mut diff = *addr - i32::from(self.address);
+                            if !(-128..=127).contains(&diff) {
                                 self.error(
-                                    format!("Jump out of range (-128, +127): {diff:+}"), instr.span, None
+                                    format!("Jump out of range (-128, +127): {diff:+}"),
+                                    instr.span,
+                                    None,
                                 );
                                 diff = 0;
                             }
@@ -257,7 +275,7 @@ impl SemanticAnalyser {
                     } else {
                         self.unknown_labels
                             .entry(s.clone())
-                            .or_insert_with(Vec::new)
+                            .or_default()
                             .push(self.instructions.len());
                         (m, Some(UNKNOWN_ADDR))
                     }
@@ -382,15 +400,23 @@ impl SemanticAnalyser {
                         self.instructions[instr].operand = Some(self.address.into());
                     }
                     AddressMode::Relative => {
-                        let mut diff = i32::from(self.instructions[instr].address) - i32::from(self.address);
+                        let mut diff =
+                            i32::from(self.instructions[instr].address) - i32::from(self.address);
                         if diff.abs() > 0xFF {
-                            self.error(format!("Jump out of range (-128, +127): {diff:+}"), label.span, None);
+                            self.error(
+                                format!("Jump out of range (-128, +127): {diff:+}"),
+                                label.span,
+                                None,
+                            );
                             diff = 0x00;
                         }
                         self.instructions[instr].operand = Some(diff);
                     }
                     other => self.error(
-                        format!("Invalid addressing mode '{:#?}' for label reference '{}'", other, label.label),
+                        format!(
+                            "Invalid addressing mode '{:#?}' for label reference '{}'",
+                            other, label.label
+                        ),
                         label.span,
                         None,
                     ),

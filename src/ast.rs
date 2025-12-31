@@ -131,14 +131,10 @@ pub struct StringLiteral {
     pub value: String,
 }
 
-#[derive(Clone, Copy, Debug, EnumString, IntoStaticStr)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, EnumString, IntoStaticStr)]
 pub enum Directive {
     Set,
-    Include,
-    Define,
-    Ifdef,
-    Ifndef,
-    Endif,
+    Org,
 }
 
 impl Directive {
@@ -219,9 +215,14 @@ impl Opcode {
     pub fn is_relative(&self) -> bool {
         matches!(
             self,
-            Self::Bcc | Self::Bcs | Self::Beq |
-            Self::Bmi | Self::Bne | Self::Bpl |
-            Self::Bvc | Self::Bvs
+            Self::Bcc
+                | Self::Bcs
+                | Self::Beq
+                | Self::Bmi
+                | Self::Bne
+                | Self::Bpl
+                | Self::Bvc
+                | Self::Bvs
         )
     }
 
