@@ -1,42 +1,43 @@
+use std::{fs, path};
+
 use clap::Parser;
 
-// Local
-mod assembler;
+mod assemble;
+mod ast;
 mod error;
-mod instruction;
-mod lexer;
+mod lex;
+mod parse;
+mod semantic;
 
-use crate::{assembler::Assembler, error::ErrorLevel, lexer::Lexer};
+use crate::{assemble::assemble, semantic::semantic_analysis};
 
 #[derive(Parser)]
 #[command(version, about)]
-struct Cli {
+struct Args {
     /// The path to the file to read
     #[arg(short, long)]
-    path: std::path::PathBuf,
+    file: path::PathBuf,
 }
 
 fn main() {
-    let args = Cli::parse();
+    let args = Args::parse();
 
-    // Parse inital file
-    let mut lexer = Lexer::new(args.path);
-    let tokens = match lexer.lex() {
-        Ok(tokens) => tokens,
+    let source = fs::read_to_string(&args.file).unwrap_or_else(|err| {
+        eprintln!("Error reading file '{}': {}", args.file.display(), err);
+        std::process::exit(1);
+    });
+    let filename = args.file.to_string_lossy().to_string();
+
+    let ast = assemble(&source, &filename);
+    let instrs = match semantic_analysis(&ast) {
+        Ok(instrs) => instrs,
         Err(e) => {
-            let error = e.generate_context_error(ErrorLevel::Error);
-            println!("{}", error);
-            return;
+            error::report_errors(&source, &filename, &e);
+            std::process::exit(1);
         }
     };
 
-    let mut assembler = Assembler::new();
-    let hex = match assembler.assemble(tokens) {
-        Ok(hex) => hex,
-        Err(e) => {
-            let error = e.generate_context_error(ErrorLevel::Error);
-            println!("{}", error);
-            return;
-        }
-    };
+    for instr in instrs {
+        println!("{instr}");
+    }
 }
