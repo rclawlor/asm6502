@@ -4,17 +4,19 @@ use phf::phf_map;
 
 use crate::{ast::*, error::CompileError};
 
-pub fn semantic_analysis(ast: &Program) -> Result<Program, Vec<CompileError>> {
+const UNKNOWN_ADDR: i32 = -0x0001;
+
+pub fn semantic_analysis(ast: &Program) -> Result<Vec<AnalysedInstruction>, Vec<CompileError>> {
     let mut resolver = SymbolResolver::new(ast.clone());
     let new_ast = resolver.resolve();
     if !resolver.errors.is_empty() {
         return Err(resolver.errors);
     }
 
-    let mut analyser = SemanticAnalyser::new();
-    analyser.analyse(&new_ast);
+    let mut analyser = SemanticAnalyser::new(new_ast.clone());
+    let instr = analyser.analyse();
     if analyser.errors.is_empty() {
-        Ok(new_ast)
+        Ok(instr)
     } else {
         Err(analyser.errors)
     }
@@ -51,7 +53,7 @@ impl SymbolResolver {
             match item {
                 ProgramItem::Preprocessor(pp) => self.resolve_preprocessor(pp),
                 ProgramItem::Instruction(instr) => self.resolve_instruction(instr),
-                ProgramItem::Label(_) => (),
+                ProgramItem::Label(_) => self.items.push(item.clone()),
             }
         }
         let mut new_ast = self.ast.clone();
@@ -130,44 +132,78 @@ impl SymbolResolver {
     }
 }
 
-struct AnalysedInstruction {
+#[derive(Clone, Copy, Debug)]
+pub struct AnalysedInstruction {
     address: u16,
     opcode: Opcode,
     mode: AddressMode,
     operand: Option<i32>,
 }
 
+impl std::fmt::Display for AnalysedInstruction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{:#06x}: {} {}",
+            self.address,
+            self.opcode.as_ref().to_ascii_uppercase(),
+            match self.operand {
+                Some(n) => {
+                    if self.opcode.is_relative() {
+                        format!("{n}   ({:#06x})", i32::from(self.address) + n)
+                    } else {
+                        format!("{n:#02x}")
+                    }
+                },
+                None => "".to_string(),
+            }
+        )
+    }
+}
+
 struct SemanticAnalyser {
+    ast: Program,
+    /// Current address
     address: u16,
+    /// Post-analysis instructions
     instructions: Vec<AnalysedInstruction>,
+    /// Labels and corresponding addresses
+    labels: HashMap<String, i32>,
+    /// Labels not yet found
+    unknown_labels: HashMap<String, Vec<usize>>,
     errors: Vec<CompileError>,
 }
 
 impl SemanticAnalyser {
-    fn new() -> Self {
+    fn new(ast: Program) -> Self {
         SemanticAnalyser {
+            ast,
             address: 0x0000,
             instructions: Vec::new(),
+            labels: HashMap::new(),
+            unknown_labels: HashMap::new(),
             errors: Vec::new(),
         }
     }
 
-    fn analyse(&mut self, ast: &Program) {
-        for item in &ast.items {
-            let instruction = match item {
-                ProgramItem::Instruction(instr) => self.analyse_instruction(instr),
+    fn analyse(&mut self) -> Vec<AnalysedInstruction> {
+        for item in self.ast.items.clone() {
+            match item {
+                ProgramItem::Instruction(instr) => {
+                    let i = self.analyse_instruction(&instr);
+                    self.instructions.push(i);
+                }
                 ProgramItem::Preprocessor(pp) => {
                     self.error(
                         String::from("Preprocessor should be resolved before semantic analysis"),
                         pp.span,
                         None,
                     );
-                    return;
                 }
-                ProgramItem::Label(_) => continue,
+                ProgramItem::Label(label) => self.analyse_label(&label),
             };
-            self.instructions.push(instruction);
         }
+        self.instructions.clone()
     }
 
     /// Append new error message
@@ -195,6 +231,39 @@ impl SemanticAnalyser {
                     (AddressMode::Absolute, Some(n.value))
                 } else {
                     (AddressMode::ZeroPage, Some(n.value))
+                }
+            }
+            // Absolute or relative
+            [Operand::AddrLabel(s)] => {
+                let m = if instr.opcode.is_relative() {
+                    AddressMode::Relative
+                } else {
+                    AddressMode::Absolute
+                };
+                if self.ast.labels.contains(s) {
+                    if let Some(addr) = self.labels.get(s) {
+                        if m == AddressMode::Relative {
+                            let mut diff = i32::from(*addr) - i32::from(self.address);
+                            if diff < -128 || diff > 127 {
+                                self.error(
+                                    format!("Jump out of range (-128, +127): {diff:+}"), instr.span, None
+                                );
+                                diff = 0;
+                            }
+                            (m, Some(diff))
+                        } else {
+                            (m, Some(*addr))
+                        }
+                    } else {
+                        self.unknown_labels
+                            .entry(s.clone())
+                            .or_insert_with(Vec::new)
+                            .push(self.instructions.len());
+                        (m, Some(UNKNOWN_ADDR))
+                    }
+                } else {
+                    self.error(format!("Label '{s}' not found"), instr.span, None);
+                    (m, Some(0x0000))
                 }
             }
             // Absolute, X-indexed
@@ -301,9 +370,37 @@ impl SemanticAnalyser {
 
         new_instr
     }
+
+    /// Insert (label, addr) pair into lookup and resolve
+    fn analyse_label(&mut self, label: &Label) {
+        self.labels.insert(label.label.clone(), self.address.into());
+        let unmapped_instrs = self.unknown_labels.remove(&label.label);
+        if let Some(instrs) = unmapped_instrs {
+            for instr in instrs.clone() {
+                match self.instructions[instr].mode {
+                    AddressMode::Absolute => {
+                        self.instructions[instr].operand = Some(self.address.into());
+                    }
+                    AddressMode::Relative => {
+                        let mut diff = i32::from(self.instructions[instr].address) - i32::from(self.address);
+                        if diff.abs() > 0xFF {
+                            self.error(format!("Jump out of range (-128, +127): {diff:+}"), label.span, None);
+                            diff = 0x00;
+                        }
+                        self.instructions[instr].operand = Some(diff);
+                    }
+                    other => self.error(
+                        format!("Invalid addressing mode '{:#?}' for label reference '{}'", other, label.label),
+                        label.span,
+                        None,
+                    ),
+                }
+            }
+        }
+    }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum AddressMode {
     /// OPC A
     ImpliedAccumulator,
@@ -371,9 +468,9 @@ impl AddressMode {
     }
 }
 
-struct ModeDetails {
-    mode: AddressMode,
-    opcode: u8,
+pub struct ModeDetails {
+    pub mode: AddressMode,
+    pub opcode: u8,
 }
 
 pub static INSTRUCTION_SET: phf::Map<&'static str, &'static [ModeDetails]> = phf_map! {

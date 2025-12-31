@@ -216,12 +216,21 @@ impl Opcode {
         matches!(self, Self::Asl | Self::Rol | Self::Lsr | Self::Ror)
     }
 
+    pub fn is_relative(&self) -> bool {
+        matches!(
+            self,
+            Self::Bcc | Self::Bcs | Self::Beq |
+            Self::Bmi | Self::Bne | Self::Bpl |
+            Self::Bvc | Self::Bvs
+        )
+    }
+
     pub fn address_modes(&self) -> Vec<AddressMode> {
         INSTRUCTION_SET
             .get(self.as_ref())
             .unwrap()
             .iter()
-            .map(|(mode, _)| *mode)
+            .map(|mode| mode.mode)
             .collect()
     }
 

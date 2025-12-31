@@ -29,7 +29,15 @@ fn main() {
     let filename = args.file.to_string_lossy().to_string();
 
     let ast = assemble(&source, &filename);
-    if let Some(err) = semantic_analysis(&ast).err() {
-        error::report_errors(&source, &filename, &err);
+    let instrs = match semantic_analysis(&ast) {
+        Ok(instrs) => instrs,
+        Err(e) => {
+            error::report_errors(&source, &filename, &e);
+            std::process::exit(1);
+        }
     };
+
+    for instr in instrs {
+        println!("{instr}");
+    }
 }
