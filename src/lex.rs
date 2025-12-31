@@ -26,6 +26,7 @@ pub enum TokenKind {
     Number, // [0-9]+
     Ident,  // XID_Start XID_Continue*
     String, // "..." or '...'
+    Label,  // XID_Start XID_Continue*:
 
     // Special tokens
     Hash,      // "#"
@@ -153,8 +154,13 @@ impl<'source> Lexer<'source> {
                         self.advance();
                     }
 
-                    let text = &self.source[start_pos..self.pos];
-                    KEYWORDS.get(text).copied().unwrap_or(TokenKind::Ident)
+                    if self.peek_char() == ':' {
+                        self.advance();
+                        TokenKind::Label
+                    } else {
+                        let text = &self.source[start_pos..self.pos];
+                        KEYWORDS.get(text).copied().unwrap_or(TokenKind::Ident)
+                    }
                 }
 
                 _ => TokenKind::InvalidToken,

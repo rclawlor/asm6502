@@ -1,4 +1,4 @@
-use std::{str::FromStr, sync::atomic::AtomicUsize};
+use std::{collections::HashSet, str::FromStr, sync::atomic::AtomicUsize};
 
 use strum::{AsRefStr, EnumString, IntoStaticStr};
 
@@ -40,12 +40,14 @@ pub struct Program {
     pub id: NodeId,
     pub span: Span,
     pub items: Vec<ProgramItem>,
+    pub labels: HashSet<String>,
 }
 
 #[derive(Debug, Clone)]
 pub enum ProgramItem {
     Preprocessor(Preprocessor),
     Instruction(Instruction),
+    Label(Label),
 }
 
 #[derive(Debug, Clone)]
@@ -61,6 +63,13 @@ pub enum DirectiveItem {
     Number(Number),
     Ident(Ident),
     String(StringLiteral),
+}
+
+#[derive(Debug, Clone)]
+pub struct Label {
+    pub id: NodeId,
+    pub span: Span,
+    pub label: String,
 }
 
 #[derive(Debug, Clone)]
@@ -80,6 +89,7 @@ pub enum Operand {
     Idx,
     LBracket,
     RBracket,
+    AddrLabel(String),
 }
 
 #[derive(Debug, Clone)]

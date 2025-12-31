@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{collections::HashSet, str::FromStr};
 
 use crate::{
     ast::*,
@@ -36,6 +36,7 @@ struct Parser<'source> {
     lexer: Lexer<'source>,
     current: Token<'source>,
     previous: Token<'source>,
+    labels: HashSet<String>,
     errors: Vec<CompileError>,
 }
 
@@ -49,6 +50,7 @@ impl<'source> Parser<'source> {
             lexer,
             current,
             previous,
+            labels: HashSet::new(),
             errors: Vec::new(),
         }
     }
@@ -61,6 +63,8 @@ impl<'source> Parser<'source> {
                 items.push(ProgramItem::Instruction(self.parse_instruction()));
             } else if self.is_preprocessor() {
                 items.push(ProgramItem::Preprocessor(self.parse_preprocessor()));
+            } else if self.is_label() {
+                items.push(ProgramItem::Label(self.parse_label()));
             } else {
                 self.error(String::from("Unexpected token"), self.current.span, None);
                 self.advance();
@@ -71,6 +75,7 @@ impl<'source> Parser<'source> {
             id: next_node_id(),
             span: self.span_from(start_loc),
             items,
+            labels: self.labels.clone(),
         }
     }
 
@@ -281,12 +286,30 @@ impl<'source> Parser<'source> {
         }
     }
 
+    fn parse_label(&mut self) -> Label {
+        let loc = self.current.span;
+        let label = self.current.text.strip_suffix(':').unwrap();
+        self.labels.insert(label.to_string());
+
+        self.expect_token(TokenKind::Label);
+
+        Label {
+            id: next_node_id(),
+            span: loc,
+            label: label.to_string(),
+        }
+    }
+
     fn is_opcode(&self) -> bool {
         self.current.kind == TokenKind::Opcode
     }
 
     fn is_preprocessor(&self) -> bool {
         self.current.kind == TokenKind::Preprocessor
+    }
+
+    fn is_label(&self) -> bool {
+        self.current.kind == TokenKind::Label
     }
 }
 

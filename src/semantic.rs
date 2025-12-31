@@ -5,8 +5,8 @@ use phf::phf_map;
 use crate::{ast::*, error::CompileError};
 
 pub fn semantic_analysis(ast: &Program) -> Result<Program, Vec<CompileError>> {
-    let mut resolver = SymbolResolver::new();
-    let new_ast = resolver.resolve(ast);
+    let mut resolver = SymbolResolver::new(ast.clone());
+    let new_ast = resolver.resolve();
     if !resolver.errors.is_empty() {
         return Err(resolver.errors);
     }
@@ -21,14 +21,16 @@ pub fn semantic_analysis(ast: &Program) -> Result<Program, Vec<CompileError>> {
 }
 
 struct SymbolResolver {
+    ast: Program,
     symbol_table: HashMap<String, DirectiveItem>,
     items: Vec<ProgramItem>,
     errors: Vec<CompileError>,
 }
 
 impl SymbolResolver {
-    fn new() -> Self {
+    fn new(ast: Program) -> Self {
         SymbolResolver {
+            ast,
             symbol_table: HashMap::new(),
             items: Vec::new(),
             errors: Vec::new(),
@@ -44,14 +46,15 @@ impl SymbolResolver {
         });
     }
 
-    fn resolve(&mut self, ast: &Program) -> Program {
-        for item in &ast.items {
+    fn resolve(&mut self) -> Program {
+        for item in &self.ast.items.clone() {
             match item {
                 ProgramItem::Preprocessor(pp) => self.resolve_preprocessor(pp),
                 ProgramItem::Instruction(instr) => self.resolve_instruction(instr),
+                ProgramItem::Label(_) => (),
             }
         }
-        let mut new_ast = ast.clone();
+        let mut new_ast = self.ast.clone();
         new_ast.items = self.items.clone();
         new_ast
     }
@@ -108,6 +111,10 @@ impl SymbolResolver {
                             );
                         }
                     }
+                } else if self.ast.labels.contains(&ident.value) {
+                    new_instr
+                        .operands
+                        .push(Operand::AddrLabel(ident.value.clone()));
                 } else {
                     self.error(
                         format!("Could not find definition for '{}'", ident.value),
@@ -124,19 +131,25 @@ impl SymbolResolver {
 }
 
 struct AnalysedInstruction {
+    address: u16,
     opcode: Opcode,
     mode: AddressMode,
     operand: Option<i32>,
 }
 
 struct SemanticAnalyser {
+    address: u16,
     instructions: Vec<AnalysedInstruction>,
     errors: Vec<CompileError>,
 }
 
 impl SemanticAnalyser {
     fn new() -> Self {
-        SemanticAnalyser { instructions: Vec::new(), errors: Vec::new() }
+        SemanticAnalyser {
+            address: 0x0000,
+            instructions: Vec::new(),
+            errors: Vec::new(),
+        }
     }
 
     fn analyse(&mut self, ast: &Program) {
@@ -147,10 +160,11 @@ impl SemanticAnalyser {
                     self.error(
                         String::from("Preprocessor should be resolved before semantic analysis"),
                         pp.span,
-                        None
+                        None,
                     );
                     return;
                 }
+                ProgramItem::Label(_) => continue,
             };
             self.instructions.push(instruction);
         }
@@ -184,9 +198,13 @@ impl SemanticAnalyser {
                 }
             }
             // Absolute, X-indexed
-            [Operand::Number(n), Operand::Register(Register::X)] => (AddressMode::AbsoluteXIdx, Some(n.value)),
+            [Operand::Number(n), Operand::Register(Register::X)] => {
+                (AddressMode::AbsoluteXIdx, Some(n.value))
+            }
             // Absolute, Y-indexed
-            [Operand::Number(n), Operand::Register(Register::Y)] => (AddressMode::AbsoluteYIdx, Some(n.value)),
+            [Operand::Number(n), Operand::Register(Register::Y)] => {
+                (AddressMode::AbsoluteYIdx, Some(n.value))
+            }
             // Immediate
             [Operand::Immediate, Operand::Number(n)] => {
                 if n.value > 0xFF {
@@ -202,7 +220,9 @@ impl SemanticAnalyser {
                 (AddressMode::Immediate, Some(n.value))
             }
             // Indirect
-            [Operand::LBracket, Operand::Number(n), Operand::RBracket] => (AddressMode::Indirect, Some(n.value)),
+            [Operand::LBracket, Operand::Number(n), Operand::RBracket] => {
+                (AddressMode::Indirect, Some(n.value))
+            }
             // X-indexed, indirect
             [Operand::LBracket, Operand::Number(n), Operand::Idx, Operand::Register(Register::X), Operand::RBracket] =>
             {
@@ -271,11 +291,15 @@ impl SemanticAnalyser {
             }
         };
 
-        AnalysedInstruction {
+        let new_instr = AnalysedInstruction {
+            address: self.address,
             opcode: instr.opcode,
             mode,
             operand,
-        }
+        };
+        self.address += mode.num_bytes();
+
+        new_instr
     }
 }
 
@@ -327,202 +351,225 @@ impl AddressMode {
             Self::ZeroPageYIdx => format!("{opcode} $LL,Y   (zero-page, y-indexed)"),
         }
     }
+
+    pub fn num_bytes(&self) -> u16 {
+        match self {
+            Self::ImpliedAccumulator => 1,
+            Self::Absolute => 3,
+            Self::AbsoluteXIdx => 3,
+            Self::AbsoluteYIdx => 3,
+            Self::Immediate => 2,
+            Self::Implied => 1,
+            Self::Indirect => 3,
+            Self::IndirectXIdx => 2,
+            Self::IndirectYIdx => 2,
+            Self::Relative => 2,
+            Self::ZeroPage => 2,
+            Self::ZeroPageXIdx => 2,
+            Self::ZeroPageYIdx => 2,
+        }
+    }
 }
 
-pub static INSTRUCTION_SET: phf::Map<&'static str, &'static [(AddressMode, u8)]> = phf_map! {
+struct ModeDetails {
+    mode: AddressMode,
+    opcode: u8,
+}
+
+pub static INSTRUCTION_SET: phf::Map<&'static str, &'static [ModeDetails]> = phf_map! {
     "Adc" => &[
-        (AddressMode::Immediate,    0x69),
-        (AddressMode::ZeroPage,     0x65),
-        (AddressMode::ZeroPageXIdx, 0x75),
-        (AddressMode::Absolute,     0x6D),
-        (AddressMode::AbsoluteXIdx, 0x7D),
-        (AddressMode::AbsoluteYIdx, 0x79),
-        (AddressMode::IndirectXIdx, 0x61),
-        (AddressMode::IndirectYIdx, 0x71),
+        ModeDetails { mode: AddressMode::Immediate, opcode: 0x69 },
+        ModeDetails { mode: AddressMode::ZeroPage, opcode: 0x65 },
+        ModeDetails { mode: AddressMode::ZeroPageXIdx, opcode: 0x75 },
+        ModeDetails { mode: AddressMode::Absolute, opcode: 0x6D },
+        ModeDetails { mode: AddressMode::AbsoluteXIdx, opcode: 0x7D },
+        ModeDetails { mode: AddressMode::AbsoluteYIdx, opcode: 0x79 },
+        ModeDetails { mode: AddressMode::IndirectXIdx, opcode: 0x61 },
+        ModeDetails { mode: AddressMode::IndirectYIdx, opcode: 0x71 },
     ],
     "And" => &[
-        (AddressMode::Immediate,    0x29),
-        (AddressMode::ZeroPage,     0x25),
-        (AddressMode::ZeroPageXIdx, 0x35),
-        (AddressMode::Absolute,     0x2D),
-        (AddressMode::AbsoluteXIdx, 0x3D),
-        (AddressMode::AbsoluteYIdx, 0x39),
-        (AddressMode::IndirectXIdx, 0x21),
-        (AddressMode::IndirectYIdx, 0x31),
+        ModeDetails { mode: AddressMode::Immediate, opcode: 0x29 },
+        ModeDetails { mode: AddressMode::ZeroPage, opcode: 0x25 },
+        ModeDetails { mode: AddressMode::ZeroPageXIdx, opcode: 0x35 },
+        ModeDetails { mode: AddressMode::Absolute, opcode: 0x2D },
+        ModeDetails { mode: AddressMode::AbsoluteXIdx, opcode: 0x3D },
+        ModeDetails { mode: AddressMode::AbsoluteYIdx, opcode: 0x39 },
+        ModeDetails { mode: AddressMode::IndirectXIdx, opcode: 0x21 },
+        ModeDetails { mode: AddressMode::IndirectYIdx, opcode: 0x31 },
     ],
     "Asl" => &[
-        (AddressMode::ImpliedAccumulator, 0x0A),
-        (AddressMode::ZeroPage,           0x06),
-        (AddressMode::ZeroPageXIdx,       0x16),
-        (AddressMode::Absolute,           0x0E),
-        (AddressMode::AbsoluteXIdx,       0x1E),
+        ModeDetails { mode: AddressMode::ImpliedAccumulator, opcode: 0x0A },
+        ModeDetails { mode: AddressMode::ZeroPage, opcode: 0x06 },
+        ModeDetails { mode: AddressMode::ZeroPageXIdx, opcode: 0x16 },
+        ModeDetails { mode: AddressMode::Absolute, opcode: 0x0E },
+        ModeDetails { mode: AddressMode::AbsoluteXIdx, opcode: 0x1E },
     ],
-    "Bcc" => &[(AddressMode::Relative, 0x90)],
-    "Bcs" => &[(AddressMode::Relative, 0xB0)],
-    "Beq" => &[(AddressMode::Relative, 0xF0)],
+    "Bcc" => &[ModeDetails { mode: AddressMode::Relative, opcode: 0x90 }],
+    "Bcs" => &[ModeDetails { mode: AddressMode::Relative, opcode: 0xB0 }],
+    "Beq" => &[ModeDetails { mode: AddressMode::Relative, opcode: 0xF0 }],
     "Bit" => &[
-        (AddressMode::ZeroPage, 0x24),
-        (AddressMode::Absolute, 0x2C),
+        ModeDetails { mode: AddressMode::ZeroPage, opcode: 0x24 },
+        ModeDetails { mode: AddressMode::Absolute, opcode: 0x2C },
     ],
-    "Bmi" => &[(AddressMode::Relative, 0x30)],
-    "Bne" => &[(AddressMode::Relative, 0xD0)],
-    "Bpl" => &[(AddressMode::Relative, 0x10)],
-    "Brk" => &[(AddressMode::Implied,  0x00)],
-    "Bvc" => &[(AddressMode::Relative, 0x50)],
-    "Bvs" => &[(AddressMode::Relative, 0x70)],
-    "Clc" => &[(AddressMode::Implied,  0x18)],
-    "Cld" => &[(AddressMode::Implied,  0xD8)],
-    "Cli" => &[(AddressMode::Implied,  0x58)],
-    "Clv" => &[(AddressMode::Implied,  0xB8)],
+    "Bmi" => &[ModeDetails { mode: AddressMode::Relative, opcode: 0x30 }],
+    "Bne" => &[ModeDetails { mode: AddressMode::Relative, opcode: 0xD0 }],
+    "Bpl" => &[ModeDetails { mode: AddressMode::Relative, opcode: 0x10 }],
+    "Brk" => &[ModeDetails { mode: AddressMode::Implied, opcode: 0x00 }],
+    "Bvc" => &[ModeDetails { mode: AddressMode::Relative, opcode: 0x50 }],
+    "Bvs" => &[ModeDetails { mode: AddressMode::Relative, opcode: 0x70 }],
+    "Clc" => &[ModeDetails { mode: AddressMode::Implied, opcode: 0x18 }],
+    "Cld" => &[ModeDetails { mode: AddressMode::Implied, opcode: 0xD8 }],
+    "Cli" => &[ModeDetails { mode: AddressMode::Implied, opcode: 0x58 }],
+    "Clv" => &[ModeDetails { mode: AddressMode::Implied, opcode: 0xB8 }],
     "Cmp" => &[
-        (AddressMode::Immediate,    0xC9),
-        (AddressMode::ZeroPage,     0xC5),
-        (AddressMode::ZeroPageXIdx, 0xD5),
-        (AddressMode::Absolute,     0xCD),
-        (AddressMode::AbsoluteXIdx, 0xDD),
-        (AddressMode::AbsoluteYIdx, 0xD9),
-        (AddressMode::IndirectXIdx, 0xC1),
-        (AddressMode::IndirectYIdx, 0xD1),
+        ModeDetails { mode: AddressMode::Immediate, opcode: 0xC9 },
+        ModeDetails { mode: AddressMode::ZeroPage, opcode: 0xC5 },
+        ModeDetails { mode: AddressMode::ZeroPageXIdx, opcode: 0xD5 },
+        ModeDetails { mode: AddressMode::Absolute, opcode: 0xCD },
+        ModeDetails { mode: AddressMode::AbsoluteXIdx, opcode: 0xDD },
+        ModeDetails { mode: AddressMode::AbsoluteYIdx, opcode: 0xD9 },
+        ModeDetails { mode: AddressMode::IndirectXIdx, opcode: 0xC1 },
+        ModeDetails { mode: AddressMode::IndirectYIdx, opcode: 0xD1 },
     ],
     "Cpx" => &[
-        (AddressMode::Immediate, 0xE0),
-        (AddressMode::ZeroPage,  0xE4),
-        (AddressMode::Absolute,  0xEC),
+        ModeDetails { mode: AddressMode::Immediate, opcode: 0xE0 },
+        ModeDetails { mode: AddressMode::ZeroPage, opcode: 0xE4 },
+        ModeDetails { mode: AddressMode::Absolute, opcode: 0xEC },
     ],
     "Cpy" => &[
-        (AddressMode::Immediate, 0xC0),
-        (AddressMode::ZeroPage,  0xC4),
-        (AddressMode::Absolute,  0xCC),
+        ModeDetails { mode: AddressMode::Immediate, opcode: 0xC0 },
+        ModeDetails { mode: AddressMode::ZeroPage, opcode: 0xC4 },
+        ModeDetails { mode: AddressMode::Absolute, opcode: 0xCC },
     ],
     "Dec" => &[
-        (AddressMode::ZeroPage,     0xC6),
-        (AddressMode::ZeroPageXIdx, 0xD6),
-        (AddressMode::Absolute,     0xCE),
-        (AddressMode::AbsoluteXIdx, 0xDE),
+        ModeDetails { mode: AddressMode::ZeroPage, opcode: 0xC6 },
+        ModeDetails { mode: AddressMode::ZeroPageXIdx, opcode: 0xD6 },
+        ModeDetails { mode: AddressMode::Absolute, opcode: 0xCE },
+        ModeDetails { mode: AddressMode::AbsoluteXIdx, opcode: 0xDE },
     ],
-    "Dex" => &[(AddressMode::Implied, 0xCA)],
-    "Dey" => &[(AddressMode::Implied, 0x88)],
+    "Dex" => &[ModeDetails { mode: AddressMode::Implied, opcode: 0xCA }],
+    "Dey" => &[ModeDetails { mode: AddressMode::Implied, opcode: 0x88 }],
     "Eor" => &[
-        (AddressMode::Immediate,    0x49),
-        (AddressMode::ZeroPage,     0x45),
-        (AddressMode::ZeroPageXIdx, 0x55),
-        (AddressMode::Absolute,     0x4D),
-        (AddressMode::AbsoluteXIdx, 0x5D),
-        (AddressMode::AbsoluteYIdx, 0x59),
-        (AddressMode::IndirectXIdx, 0x41),
-        (AddressMode::IndirectYIdx, 0x51),
+        ModeDetails { mode: AddressMode::Immediate, opcode: 0x49 },
+        ModeDetails { mode: AddressMode::ZeroPage, opcode: 0x45 },
+        ModeDetails { mode: AddressMode::ZeroPageXIdx, opcode: 0x55 },
+        ModeDetails { mode: AddressMode::Absolute, opcode: 0x4D },
+        ModeDetails { mode: AddressMode::AbsoluteXIdx, opcode: 0x5D },
+        ModeDetails { mode: AddressMode::AbsoluteYIdx, opcode: 0x59 },
+        ModeDetails { mode: AddressMode::IndirectXIdx, opcode: 0x41 },
+        ModeDetails { mode: AddressMode::IndirectYIdx, opcode: 0x51 },
     ],
     "Inc" => &[
-        (AddressMode::ZeroPage,     0xE6),
-        (AddressMode::ZeroPageXIdx, 0xF6),
-        (AddressMode::Absolute,     0xEE),
-        (AddressMode::AbsoluteXIdx, 0xFE),
+        ModeDetails { mode: AddressMode::ZeroPage, opcode: 0xE6 },
+        ModeDetails { mode: AddressMode::ZeroPageXIdx, opcode: 0xF6 },
+        ModeDetails { mode: AddressMode::Absolute, opcode: 0xEE },
+        ModeDetails { mode: AddressMode::AbsoluteXIdx, opcode: 0xFE },
     ],
-    "Inx" => &[(AddressMode::Implied, 0xE8)],
-    "Iny" => &[(AddressMode::Implied, 0xC8)],
+    "Inx" => &[ModeDetails { mode: AddressMode::Implied, opcode: 0xE8 }],
+    "Iny" => &[ModeDetails { mode: AddressMode::Implied, opcode: 0xC8 }],
     "Jmp" => &[
-        (AddressMode::Absolute, 0x4C),
-        (AddressMode::Indirect, 0x6C),
+        ModeDetails { mode: AddressMode::Absolute, opcode: 0x4C },
+        ModeDetails { mode: AddressMode::Indirect, opcode: 0x6C },
     ],
-    "Jsr" => &[(AddressMode::Absolute, 0x20)],
+    "Jsr" => &[ModeDetails { mode: AddressMode::Absolute, opcode: 0x20 }],
     "Lda" => &[
-        (AddressMode::Immediate,    0xA9),
-        (AddressMode::ZeroPage,     0xA5),
-        (AddressMode::ZeroPageXIdx, 0xB5),
-        (AddressMode::Absolute,     0xAD),
-        (AddressMode::AbsoluteXIdx, 0xBD),
-        (AddressMode::AbsoluteYIdx, 0xB9),
-        (AddressMode::IndirectXIdx, 0xA1),
-        (AddressMode::IndirectYIdx, 0xB1),
+        ModeDetails { mode: AddressMode::Immediate, opcode: 0xA9 },
+        ModeDetails { mode: AddressMode::ZeroPage, opcode: 0xA5 },
+        ModeDetails { mode: AddressMode::ZeroPageXIdx, opcode: 0xB5 },
+        ModeDetails { mode: AddressMode::Absolute, opcode: 0xAD },
+        ModeDetails { mode: AddressMode::AbsoluteXIdx, opcode: 0xBD },
+        ModeDetails { mode: AddressMode::AbsoluteYIdx, opcode: 0xB9 },
+        ModeDetails { mode: AddressMode::IndirectXIdx, opcode: 0xA1 },
+        ModeDetails { mode: AddressMode::IndirectYIdx, opcode: 0xB1 },
     ],
     "Ldx" => &[
-        (AddressMode::Immediate,    0xA2),
-        (AddressMode::ZeroPage,     0xA6),
-        (AddressMode::ZeroPageYIdx, 0xB6),
-        (AddressMode::Absolute,     0xAE),
-        (AddressMode::AbsoluteYIdx, 0xBE),
+        ModeDetails { mode: AddressMode::Immediate, opcode: 0xA2 },
+        ModeDetails { mode: AddressMode::ZeroPage, opcode: 0xA6 },
+        ModeDetails { mode: AddressMode::ZeroPageYIdx, opcode: 0xB6 },
+        ModeDetails { mode: AddressMode::Absolute, opcode: 0xAE },
+        ModeDetails { mode: AddressMode::AbsoluteYIdx, opcode: 0xBE },
     ],
     "Ldy" => &[
-        (AddressMode::Immediate,    0xA0),
-        (AddressMode::ZeroPage,     0xA4),
-        (AddressMode::ZeroPageXIdx, 0xB4),
-        (AddressMode::Absolute,     0xAC),
-        (AddressMode::AbsoluteXIdx, 0xBC),
+        ModeDetails { mode: AddressMode::Immediate, opcode: 0xA0 },
+        ModeDetails { mode: AddressMode::ZeroPage, opcode: 0xA4 },
+        ModeDetails { mode: AddressMode::ZeroPageXIdx, opcode: 0xB4 },
+        ModeDetails { mode: AddressMode::Absolute, opcode: 0xAC },
+        ModeDetails { mode: AddressMode::AbsoluteXIdx, opcode: 0xBC },
     ],
     "Lsr" => &[
-        (AddressMode::ImpliedAccumulator, 0x4A),
-        (AddressMode::ZeroPage,           0x46),
-        (AddressMode::ZeroPageXIdx,       0x56),
-        (AddressMode::Absolute,           0x4E),
-        (AddressMode::AbsoluteXIdx,       0x5E),
+        ModeDetails { mode: AddressMode::ImpliedAccumulator, opcode: 0x4A },
+        ModeDetails { mode: AddressMode::ZeroPage, opcode: 0x46 },
+        ModeDetails { mode: AddressMode::ZeroPageXIdx, opcode: 0x56 },
+        ModeDetails { mode: AddressMode::Absolute, opcode: 0x4E },
+        ModeDetails { mode: AddressMode::AbsoluteXIdx, opcode: 0x5E },
     ],
-    "Nop" => &[(AddressMode::Absolute, 0xEA)],
+    "Nop" => &[ModeDetails { mode: AddressMode::Absolute, opcode: 0xEA }],
     "Ora" => &[
-        (AddressMode::Immediate,    0x09),
-        (AddressMode::ZeroPage,     0x05),
-        (AddressMode::ZeroPageXIdx, 0x15),
-        (AddressMode::Absolute,     0x0D),
-        (AddressMode::AbsoluteXIdx, 0x1D),
-        (AddressMode::AbsoluteYIdx, 0x19),
-        (AddressMode::IndirectXIdx, 0x01),
-        (AddressMode::IndirectYIdx, 0x11),
+        ModeDetails { mode: AddressMode::Immediate, opcode: 0x09 },
+        ModeDetails { mode: AddressMode::ZeroPage, opcode: 0x05 },
+        ModeDetails { mode: AddressMode::ZeroPageXIdx, opcode: 0x15 },
+        ModeDetails { mode: AddressMode::Absolute, opcode: 0x0D },
+        ModeDetails { mode: AddressMode::AbsoluteXIdx, opcode: 0x1D },
+        ModeDetails { mode: AddressMode::AbsoluteYIdx, opcode: 0x19 },
+        ModeDetails { mode: AddressMode::IndirectXIdx, opcode: 0x01 },
+        ModeDetails { mode: AddressMode::IndirectYIdx, opcode: 0x11 },
     ],
-    "Pha" => &[(AddressMode::Implied, 0x48)],
-    "Php" => &[(AddressMode::Implied, 0x08)],
-    "Pla" => &[(AddressMode::Implied, 0x68)],
-    "Plp" => &[(AddressMode::Implied, 0x28)],
+    "Pha" => &[ModeDetails { mode: AddressMode::Implied, opcode: 0x48 }],
+    "Php" => &[ModeDetails { mode: AddressMode::Implied, opcode: 0x08 }],
+    "Pla" => &[ModeDetails { mode: AddressMode::Implied, opcode: 0x68 }],
+    "Plp" => &[ModeDetails { mode: AddressMode::Implied, opcode: 0x28 }],
     "Rol" => &[
-        (AddressMode::ImpliedAccumulator, 0x2A),
-        (AddressMode::ZeroPage,           0x26),
-        (AddressMode::ZeroPageXIdx,       0x36),
-        (AddressMode::Absolute,           0x2E),
-        (AddressMode::AbsoluteXIdx,       0x3E),
+        ModeDetails { mode: AddressMode::ImpliedAccumulator, opcode: 0x2A },
+        ModeDetails { mode: AddressMode::ZeroPage, opcode: 0x26 },
+        ModeDetails { mode: AddressMode::ZeroPageXIdx, opcode: 0x36 },
+        ModeDetails { mode: AddressMode::Absolute, opcode: 0x2E },
+        ModeDetails { mode: AddressMode::AbsoluteXIdx, opcode: 0x3E },
     ],
     "Ror" => &[
-        (AddressMode::ImpliedAccumulator, 0x6A),
-        (AddressMode::ZeroPage,           0x66),
-        (AddressMode::ZeroPageXIdx,       0x76),
-        (AddressMode::Absolute,           0x6E),
-        (AddressMode::AbsoluteXIdx,       0x7E),
+        ModeDetails { mode: AddressMode::ImpliedAccumulator, opcode: 0x6A },
+        ModeDetails { mode: AddressMode::ZeroPage, opcode: 0x66 },
+        ModeDetails { mode: AddressMode::ZeroPageXIdx, opcode: 0x76 },
+        ModeDetails { mode: AddressMode::Absolute, opcode: 0x6E },
+        ModeDetails { mode: AddressMode::AbsoluteXIdx, opcode: 0x7E },
     ],
-    "Rti" => &[(AddressMode::Implied, 0x40)],
-    "Rts" => &[(AddressMode::Implied, 0x60)],
+    "Rti" => &[ModeDetails { mode: AddressMode::Implied, opcode: 0x40 }],
+    "Rts" => &[ModeDetails { mode: AddressMode::Implied, opcode: 0x60 }],
     "Sbc" => &[
-        (AddressMode::Immediate,    0xE9),
-        (AddressMode::ZeroPage,     0xE5),
-        (AddressMode::ZeroPageXIdx, 0xF5),
-        (AddressMode::Absolute,     0xED),
-        (AddressMode::AbsoluteXIdx, 0xFD),
-        (AddressMode::AbsoluteYIdx, 0xF9),
-        (AddressMode::IndirectXIdx, 0xE1),
-        (AddressMode::IndirectYIdx, 0xF1),
+        ModeDetails { mode: AddressMode::Immediate, opcode: 0xE9 },
+        ModeDetails { mode: AddressMode::ZeroPage, opcode: 0xE5 },
+        ModeDetails { mode: AddressMode::ZeroPageXIdx, opcode: 0xF5 },
+        ModeDetails { mode: AddressMode::Absolute, opcode: 0xED },
+        ModeDetails { mode: AddressMode::AbsoluteXIdx, opcode: 0xFD },
+        ModeDetails { mode: AddressMode::AbsoluteYIdx, opcode: 0xF9 },
+        ModeDetails { mode: AddressMode::IndirectXIdx, opcode: 0xE1 },
+        ModeDetails { mode: AddressMode::IndirectYIdx, opcode: 0xF1 },
     ],
-    "Sec" => &[(AddressMode::Implied, 0x38)],
-    "Sed" => &[(AddressMode::Implied, 0xF8)],
-    "Sei" => &[(AddressMode::Implied, 0x78)],
+    "Sec" => &[ModeDetails { mode: AddressMode::Implied, opcode: 0x38 }],
+    "Sed" => &[ModeDetails { mode: AddressMode::Implied, opcode: 0xF8 }],
+    "Sei" => &[ModeDetails { mode: AddressMode::Implied, opcode: 0x78 }],
     "Sta" => &[
-        (AddressMode::ZeroPage,     0x85),
-        (AddressMode::ZeroPageXIdx, 0x95),
-        (AddressMode::Absolute,     0x8D),
-        (AddressMode::AbsoluteXIdx, 0x9D),
-        (AddressMode::AbsoluteYIdx, 0x99),
-        (AddressMode::IndirectXIdx, 0x81),
-        (AddressMode::IndirectYIdx, 0x91),
+        ModeDetails { mode: AddressMode::ZeroPage, opcode: 0x85 },
+        ModeDetails { mode: AddressMode::ZeroPageXIdx, opcode: 0x95 },
+        ModeDetails { mode: AddressMode::Absolute, opcode: 0x8D },
+        ModeDetails { mode: AddressMode::AbsoluteXIdx, opcode: 0x9D },
+        ModeDetails { mode: AddressMode::AbsoluteYIdx, opcode: 0x99 },
+        ModeDetails { mode: AddressMode::IndirectXIdx, opcode: 0x81 },
+        ModeDetails { mode: AddressMode::IndirectYIdx, opcode: 0x91 },
     ],
     "Stx" => &[
-        (AddressMode::ZeroPage,     0x86),
-        (AddressMode::ZeroPageYIdx, 0x96),
-        (AddressMode::Absolute,     0x8E),
+        ModeDetails { mode: AddressMode::ZeroPage, opcode: 0x86 },
+        ModeDetails { mode: AddressMode::ZeroPageYIdx, opcode: 0x96 },
+        ModeDetails { mode: AddressMode::Absolute, opcode: 0x8E },
     ],
     "Sty" => &[
-        (AddressMode::ZeroPage,     0x84),
-        (AddressMode::ZeroPageXIdx, 0x94),
-        (AddressMode::Absolute,     0x8C),
+        ModeDetails { mode: AddressMode::ZeroPage, opcode: 0x84 },
+        ModeDetails { mode: AddressMode::ZeroPageXIdx, opcode: 0x94 },
+        ModeDetails { mode: AddressMode::Absolute, opcode: 0x8C },
     ],
-    "Tax" => &[(AddressMode::Implied, 0xAA)],
-    "Tay" => &[(AddressMode::Implied, 0xA8)],
-    "Tsx" => &[(AddressMode::Implied, 0xBA)],
-    "Txa" => &[(AddressMode::Implied, 0x8A)],
-    "Txs" => &[(AddressMode::Implied, 0x9A)],
-    "Tya" => &[(AddressMode::Implied, 0x98)]
+    "Tax" => &[ModeDetails { mode: AddressMode::Implied, opcode: 0xAA }],
+    "Tay" => &[ModeDetails { mode: AddressMode::Implied, opcode: 0xA8 }],
+    "Tsx" => &[ModeDetails { mode: AddressMode::Implied, opcode: 0xBA }],
+    "Txa" => &[ModeDetails { mode: AddressMode::Implied, opcode: 0x8A }],
+    "Txs" => &[ModeDetails { mode: AddressMode::Implied, opcode: 0x9A }],
+    "Tya" => &[ModeDetails { mode: AddressMode::Implied, opcode: 0x98 }]
 };
