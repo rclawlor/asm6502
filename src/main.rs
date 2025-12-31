@@ -4,12 +4,13 @@ use clap::Parser;
 
 mod assemble;
 mod ast;
+mod codegen;
 mod error;
 mod lex;
 mod parse;
 mod semantic;
 
-use crate::{assemble::assemble, semantic::semantic_analysis};
+use crate::{assemble::assemble, codegen::generate_binary, semantic::semantic_analysis};
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -17,6 +18,9 @@ struct Args {
     /// The path to the file to read
     #[arg(short, long)]
     file: path::PathBuf,
+    /// Print assembled program
+    #[arg(short, long)]
+    print: bool,
 }
 
 fn main() {
@@ -37,7 +41,11 @@ fn main() {
         }
     };
 
-    for instr in instrs {
-        println!("{instr}");
+    if args.print {
+        for instr in &instrs {
+            println!("{instr}");
+        }
     }
+
+    generate_binary(&instrs);
 }

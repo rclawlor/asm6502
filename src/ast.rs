@@ -235,6 +235,20 @@ impl Opcode {
             .collect()
     }
 
+    pub fn value(&self, mode: AddressMode) -> Option<u8> {
+        let values: Vec<_> = INSTRUCTION_SET
+            .get(self.as_ref())
+            .unwrap()
+            .iter()
+            .collect();
+        for v in values {
+            if v.mode == mode {
+                return Some(v.opcode);
+            }
+        }
+        None
+    }
+
     pub fn as_help_str(&self) -> String {
         let idn = self.as_ref().to_ascii_uppercase();
         let modes: Vec<_> = self

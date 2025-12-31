@@ -134,10 +134,10 @@ impl SymbolResolver {
 
 #[derive(Clone, Copy, Debug)]
 pub struct AnalysedInstruction {
-    address: u16,
-    opcode: Opcode,
-    mode: AddressMode,
-    operand: Option<i32>,
+    pub address: u16,
+    pub opcode: Opcode,
+    pub mode: AddressMode,
+    pub operand: Option<i32>,
 }
 
 impl std::fmt::Display for AnalysedInstruction {
