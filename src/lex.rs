@@ -96,13 +96,10 @@ impl<'source> Lexer<'source> {
 
                 // Comment
                 ';' => {
-                    if self.accept(';') {
-                        while !self.at_end() && self.peek_char() != '\n' {
-                            self.advance();
-                        }
-                        continue;
+                    while !self.at_end() && self.peek_char() != '\n' {
+                        self.advance();
                     }
-                    TokenKind::SemiColon
+                    continue;
                 }
 
                 // Preprocessor

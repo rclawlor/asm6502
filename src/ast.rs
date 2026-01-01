@@ -36,6 +36,25 @@ impl Span {
 }
 
 #[derive(Debug, Clone)]
+pub struct INesHeader {
+    pub prg_size_16kb: u8,
+    pub chr_size_16kb: u8,
+    pub mapper: u8,
+    pub mirror: u8,
+}
+
+impl INesHeader {
+    pub fn new() -> INesHeader {
+        INesHeader {
+            prg_size_16kb: 1,
+            chr_size_16kb: 1,
+            mapper: 1,
+            mirror: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Program {
     pub id: NodeId,
     pub span: Span,
@@ -133,6 +152,10 @@ pub struct StringLiteral {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, EnumString, IntoStaticStr)]
 pub enum Directive {
+    Inesprg,
+    Ineschr,
+    Inesmap,
+    Inesmir,
     Set,
     Org,
 }
@@ -233,6 +256,16 @@ impl Opcode {
             .iter()
             .map(|mode| mode.mode)
             .collect()
+    }
+
+    pub fn value(&self, mode: AddressMode) -> Option<u8> {
+        let values: Vec<_> = INSTRUCTION_SET.get(self.as_ref()).unwrap().iter().collect();
+        for v in values {
+            if v.mode == mode {
+                return Some(v.opcode);
+            }
+        }
+        None
     }
 
     pub fn as_help_str(&self) -> String {

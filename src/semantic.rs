@@ -6,7 +6,7 @@ use crate::{ast::*, error::CompileError};
 
 const UNKNOWN_ADDR: i32 = -0x0001;
 
-pub fn semantic_analysis(ast: &Program) -> Result<Vec<AnalysedInstruction>, Vec<CompileError>> {
+pub fn semantic_analysis(ast: &Program) -> Result<AnalysedProgram, Vec<CompileError>> {
     let mut resolver = SymbolResolver::new(ast.clone());
     let new_ast = resolver.resolve();
     if !resolver.errors.is_empty() {
@@ -14,9 +14,9 @@ pub fn semantic_analysis(ast: &Program) -> Result<Vec<AnalysedInstruction>, Vec<
     }
 
     let mut analyser = SemanticAnalyser::new(new_ast.clone());
-    let instr = analyser.analyse();
+    let program = analyser.analyse();
     if analyser.errors.is_empty() {
-        Ok(instr)
+        Ok(program)
     } else {
         Err(analyser.errors)
     }
@@ -63,6 +63,10 @@ impl SymbolResolver {
 
     fn resolve_preprocessor(&mut self, pp: &Preprocessor) {
         match pp.directive {
+            Directive::Inesprg => self.items.push(ProgramItem::Preprocessor(pp.clone())),
+            Directive::Ineschr => self.items.push(ProgramItem::Preprocessor(pp.clone())),
+            Directive::Inesmap => self.items.push(ProgramItem::Preprocessor(pp.clone())),
+            Directive::Inesmir => self.items.push(ProgramItem::Preprocessor(pp.clone())),
             Directive::Set => {
                 if pp.args.len() == 2 {
                     match &pp.args[0] {
@@ -132,12 +136,18 @@ impl SymbolResolver {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct AnalysedProgram {
+    pub instructions: Vec<AnalysedInstruction>,
+    pub header: INesHeader,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct AnalysedInstruction {
-    address: u16,
-    opcode: Opcode,
-    mode: AddressMode,
-    operand: Option<i32>,
+    pub address: u16,
+    pub opcode: Opcode,
+    pub mode: AddressMode,
+    pub operand: Option<i32>,
 }
 
 impl std::fmt::Display for AnalysedInstruction {
@@ -186,40 +196,58 @@ impl SemanticAnalyser {
         }
     }
 
-    fn analyse(&mut self) -> Vec<AnalysedInstruction> {
+    fn analyse(&mut self) -> AnalysedProgram {
+        let mut header = INesHeader::new();
         for item in self.ast.items.clone() {
             match item {
                 ProgramItem::Instruction(instr) => {
                     let i = self.analyse_instruction(&instr);
                     self.instructions.push(i);
                 }
-                ProgramItem::Preprocessor(pp) => {
-                    if pp.directive == Directive::Org {
-                        match pp.args.first() {
-                            Some(DirectiveItem::Number(n)) => {
-                                self.address = u16::try_from(n.value).unwrap()
-                            }
-                            _ => self.error(
-                                String::from("Incorrect/missing argument"),
-                                pp.span,
-                                None,
-                            ),
-                        }
-                    } else {
-                        self.error(
-                            format!(
-                                "Preprocessor {:#?} should be resolved before semantic analysis",
-                                pp.directive,
-                            ),
-                            pp.span,
-                            None,
-                        );
+                ProgramItem::Preprocessor(pp) => match pp.directive {
+                    Directive::Inesprg => {
+                        header.prg_size_16kb = self.get_preprocessor_num(&pp) as u8
                     }
-                }
+                    Directive::Ineschr => {
+                        header.chr_size_16kb = self.get_preprocessor_num(&pp) as u8
+                    }
+                    Directive::Inesmap => header.mapper = self.get_preprocessor_num(&pp) as u8,
+                    Directive::Inesmir => header.mirror = self.get_preprocessor_num(&pp) as u8,
+                    Directive::Org => match pp.args.first() {
+                        Some(DirectiveItem::Number(n)) => {
+                            self.address = u16::try_from(n.value).unwrap()
+                        }
+                        _ => self.error(String::from("Incorrect/missing argument"), pp.span, None),
+                    },
+                    _ => self.error(
+                        format!(
+                            "Preprocessor {:#?} should be resolved before semantic analysis",
+                            pp.directive,
+                        ),
+                        pp.span,
+                        None,
+                    ),
+                },
                 ProgramItem::Label(label) => self.analyse_label(&label),
             };
         }
-        self.instructions.clone()
+        AnalysedProgram {
+            instructions: self.instructions.clone(),
+            header,
+        }
+    }
+
+    fn get_preprocessor_num(&mut self, pp: &Preprocessor) -> i32 {
+        if let Some(DirectiveItem::Number(n)) = pp.args.first() {
+            n.value
+        } else {
+            self.error(
+                String::from("Preprocessor requires number argument"),
+                pp.span,
+                None,
+            );
+            1
+        }
     }
 
     /// Append new error message
