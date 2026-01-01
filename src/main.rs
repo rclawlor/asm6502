@@ -18,6 +18,12 @@ struct Args {
     /// The path to the file to read
     #[arg(short, long)]
     file: path::PathBuf,
+    /// Compile to iNES format
+    #[arg(short, long)]
+    nes: bool,
+    /// Output filename
+    #[arg(short, long)]
+    output: path::PathBuf,
     /// Print assembled program
     #[arg(short, long)]
     print: bool,
@@ -33,8 +39,8 @@ fn main() {
     let filename = args.file.to_string_lossy().to_string();
 
     let ast = assemble(&source, &filename);
-    let instrs = match semantic_analysis(&ast) {
-        Ok(instrs) => instrs,
+    let program = match semantic_analysis(&ast) {
+        Ok(program) => program,
         Err(e) => {
             error::report_errors(&source, &filename, &e);
             std::process::exit(1);
@@ -42,10 +48,17 @@ fn main() {
     };
 
     if args.print {
-        for instr in &instrs {
+        for instr in &program.instructions {
             println!("{instr}");
         }
     }
 
-    generate_binary(&instrs);
+    let binary = generate_binary(&program, args.nes);
+    match std::fs::write(args.output, binary) {
+        Ok(()) => (),
+        Err(e) => {
+            println!("{e}");
+            std::process::exit(1);
+        }
+    }
 }
