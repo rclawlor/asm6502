@@ -25,7 +25,7 @@ jobs:
           override: true
 
       # Install cargo-nextest
-      - name: Install cargo-nextest
+      - name: Install cargo nextest
 	      uses: taiki-e/install-action@cargo-nextest
 
       # Run Clippy
