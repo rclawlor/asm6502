@@ -1,7 +1,10 @@
 use std::{collections::HashSet, str::FromStr};
 
 use crate::{
-    ast::*,
+    ast::{
+        next_node_id, Directive, DirectiveItem, Ident, Instruction, Label, Number, Opcode, Operand,
+        Preprocessor, Program, ProgramItem, Register, Span, StringLiteral,
+    },
     error::CompileError,
     lex::{Lexer, Token, TokenKind},
 };
@@ -128,28 +131,26 @@ impl<'source> Parser<'source> {
     fn parse_instruction(&mut self) -> Instruction {
         let loc = self.current.span;
         let key = capitalise(self.current.text);
-        let opcode = match Opcode::from_str(key.as_str()) {
-            Ok(opcode) => opcode,
-            Err(_) => {
-                self.error(format!("Invalid opcode: {}", self.current.text), loc, None);
-                Opcode::Adc
-            }
+        let opcode = if let Ok(opcode) = Opcode::from_str(key.as_str()) {
+            opcode
+        } else {
+            self.error(format!("Invalid opcode: {}", self.current.text), loc, None);
+            Opcode::Adc
         };
         self.expect_token(TokenKind::Opcode);
         let mut operands = Vec::new();
         loop {
             match self.current.kind {
                 TokenKind::RegisterA | TokenKind::RegisterX | TokenKind::RegisterY => {
-                    let register = match Register::from_token(self.current.kind) {
-                        Some(register) => register,
-                        None => {
-                            self.error(
-                                format!("Invalid register: {:#?}", self.current.kind),
-                                self.current.span,
-                                None,
-                            );
-                            Register::A
-                        }
+                    let register = if let Some(register) = Register::from_token(self.current.kind) {
+                        register
+                    } else {
+                        self.error(
+                            format!("Invalid register: {:#?}", self.current.kind),
+                            self.current.span,
+                            None,
+                        );
+                        Register::A
                     };
                     operands.push(Operand::Register(register));
                     self.advance();
@@ -201,21 +202,20 @@ impl<'source> Parser<'source> {
                 10
             }
         };
-        let s = if base != 10 {
-            &self.current.text[1..]
-        } else {
+        let s = if base == 10 {
             self.current.text
+        } else {
+            &self.current.text[1..]
         };
-        let value = match i32::from_str_radix(s, base) {
-            Ok(value) => value,
-            Err(_) => {
-                self.error(
-                    format!("Unable to parse number '{}'", self.current.text),
-                    loc,
-                    None,
-                );
-                0
-            }
+        let value = if let Ok(value) = i32::from_str_radix(s, base) {
+            value
+        } else {
+            self.error(
+                format!("Unable to parse number '{}'", self.current.text),
+                loc,
+                None,
+            );
+            0
         };
         self.expect_token(TokenKind::Number);
 
@@ -256,16 +256,15 @@ impl<'source> Parser<'source> {
     fn parse_preprocessor(&mut self) -> Preprocessor {
         let loc = self.current.span;
         let key = capitalise(self.current.text.strip_prefix('.').unwrap());
-        let directive = match Directive::from_str(key.as_str()) {
-            Ok(directive) => directive,
-            Err(_) => {
-                self.error(
-                    format!("Invalid directive: {}", self.current.text),
-                    loc,
-                    None,
-                );
-                Directive::Set
-            }
+        let directive = if let Ok(directive) = Directive::from_str(key.as_str()) {
+            directive
+        } else {
+            self.error(
+                format!("Invalid directive: {}", self.current.text),
+                loc,
+                None,
+            );
+            Directive::Set
         };
         self.expect_token(TokenKind::Preprocessor);
         let mut args = Vec::new();

@@ -2,7 +2,13 @@ use std::collections::HashMap;
 
 use phf::phf_map;
 
-use crate::{ast::*, error::CompileError};
+use crate::{
+    ast::{
+        Directive, DirectiveItem, INesHeader, Instruction, Label, Opcode, Operand, Preprocessor,
+        Program, ProgramItem, Register, Span,
+    },
+    error::CompileError,
+};
 
 const UNKNOWN_ADDR: i32 = -0x0001;
 
@@ -165,7 +171,7 @@ impl std::fmt::Display for AnalysedInstruction {
                         format!("{n:#02x}")
                     }
                 }
-                None => "".to_string(),
+                None => String::new(),
             }
         )
     }
@@ -206,16 +212,16 @@ impl SemanticAnalyser {
                 }
                 ProgramItem::Preprocessor(pp) => match pp.directive {
                     Directive::Inesprg => {
-                        header.prg_size_16kb = self.get_preprocessor_num(&pp) as u8
+                        header.prg_size_16kb = self.get_preprocessor_num(&pp) as u8;
                     }
                     Directive::Ineschr => {
-                        header.chr_size_16kb = self.get_preprocessor_num(&pp) as u8
+                        header.chr_size_16kb = self.get_preprocessor_num(&pp) as u8;
                     }
                     Directive::Inesmap => header.mapper = self.get_preprocessor_num(&pp) as u8,
                     Directive::Inesmir => header.mirror = self.get_preprocessor_num(&pp) as u8,
                     Directive::Org => match pp.args.first() {
                         Some(DirectiveItem::Number(n)) => {
-                            self.address = u16::try_from(n.value).unwrap()
+                            self.address = u16::try_from(n.value).unwrap();
                         }
                         _ => self.error(String::from("Incorrect/missing argument"), pp.span, None),
                     },
@@ -229,7 +235,7 @@ impl SemanticAnalyser {
                     ),
                 },
                 ProgramItem::Label(label) => self.analyse_label(&label),
-            };
+            }
         }
         AnalysedProgram {
             instructions: self.instructions.clone(),
@@ -330,7 +336,7 @@ impl SemanticAnalyser {
                         ),
                         n.span,
                         None,
-                    )
+                    );
                 }
                 (AddressMode::Immediate, Some(n.value))
             }
@@ -349,7 +355,7 @@ impl SemanticAnalyser {
                         ),
                         n.span,
                         None,
-                    )
+                    );
                 }
                 (AddressMode::IndirectXIdx, Some(n.value))
             }
@@ -364,7 +370,7 @@ impl SemanticAnalyser {
                         ),
                         n.span,
                         None,
-                    )
+                    );
                 }
                 (AddressMode::IndirectYIdx, Some(n.value))
             }
@@ -378,7 +384,7 @@ impl SemanticAnalyser {
                         ),
                         n.span,
                         None,
-                    )
+                    );
                 }
                 (AddressMode::ZeroPageXIdx, Some(n.value))
             }
@@ -392,7 +398,7 @@ impl SemanticAnalyser {
                         ),
                         n.span,
                         None,
-                    )
+                    );
                 }
                 (AddressMode::ZeroPageYIdx, Some(n.value))
             }

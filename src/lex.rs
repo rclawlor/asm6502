@@ -29,9 +29,8 @@ pub enum TokenKind {
     Label,  // XID_Start XID_Continue*:
 
     // Special tokens
-    Hash,      // "#"
-    Colon,     // ":"
-    SemiColon, // ";"
+    Hash,  // "#"
+    Colon, // ":"
 
     // Other
     InvalidToken,
@@ -209,16 +208,6 @@ impl<'source> Lexer<'source> {
         self.c
     }
 
-    /// Consume next char on match
-    fn accept(&mut self, c: char) -> bool {
-        if self.peek_char() == c {
-            self.advance();
-            true
-        } else {
-            false
-        }
-    }
-
     /// Check if source file finished
     fn at_end(&self) -> bool {
         self.pos >= self.source.len()
@@ -284,15 +273,14 @@ mod tests {
 
     #[test]
     fn test_single_char_tokens() {
-        let tokens = lex(":;(),#");
-        assert_eq!(tokens.len(), 6 + 1);
+        let tokens = lex(":(),#");
+        assert_eq!(tokens.len(), 5 + 1);
         assert_eq!(tokens[0].kind, TokenKind::Colon);
-        assert_eq!(tokens[1].kind, TokenKind::SemiColon);
-        assert_eq!(tokens[2].kind, TokenKind::LeftBracket);
-        assert_eq!(tokens[3].kind, TokenKind::RightBracket);
-        assert_eq!(tokens[4].kind, TokenKind::Comma);
-        assert_eq!(tokens[5].kind, TokenKind::Hash);
-        assert_eq!(tokens[6].kind, TokenKind::Eof);
+        assert_eq!(tokens[1].kind, TokenKind::LeftBracket);
+        assert_eq!(tokens[2].kind, TokenKind::RightBracket);
+        assert_eq!(tokens[3].kind, TokenKind::Comma);
+        assert_eq!(tokens[4].kind, TokenKind::Hash);
+        assert_eq!(tokens[5].kind, TokenKind::Eof);
     }
 
     #[test]
@@ -329,7 +317,7 @@ mod tests {
 
     #[test]
     fn test_preprocessor() {
-        let tokens = lex(".include .INCLUDE .ifdef .endif");
+        let tokens = lex(".set .org .inesmap .ineschr");
         assert_eq!(tokens.len(), 4 + 1);
         assert_eq!(tokens[0].kind, TokenKind::Preprocessor);
         assert_eq!(tokens[1].kind, TokenKind::Preprocessor);

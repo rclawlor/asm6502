@@ -7,10 +7,10 @@ pub fn generate_binary(program: &AnalysedProgram, nes: bool) -> Vec<u8> {
     if nes {
         bytestream.write_ines_header(&program.header);
     }
-    let mut address = if !program.instructions.is_empty() {
-        program.instructions[0].address
-    } else {
+    let mut address = if program.instructions.is_empty() {
         0x0000
+    } else {
+        program.instructions[0].address
     };
     for instr in &program.instructions {
         if instr.address > address + 1 {

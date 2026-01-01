@@ -25,16 +25,6 @@ pub struct Span {
     pub end: usize,
 }
 
-impl Span {
-    /// Get span up to end
-    pub fn up_to(&self, end: Span) -> Span {
-        Span {
-            start: self.start,
-            end: end.end,
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct INesHeader {
     pub prg_size_16kb: u8,
@@ -54,6 +44,7 @@ impl INesHeader {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct Program {
     pub id: NodeId,
@@ -69,6 +60,7 @@ pub enum ProgramItem {
     Label(Label),
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct Preprocessor {
     pub id: NodeId,
@@ -84,6 +76,7 @@ pub enum DirectiveItem {
     String(StringLiteral),
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct Label {
     pub id: NodeId,
@@ -91,6 +84,7 @@ pub struct Label {
     pub label: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct Instruction {
     pub id: NodeId,
@@ -129,6 +123,7 @@ impl Register {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct Number {
     pub id: NodeId,
@@ -136,6 +131,7 @@ pub struct Number {
     pub value: i32,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct Ident {
     pub id: NodeId,
@@ -143,6 +139,7 @@ pub struct Ident {
     pub value: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct StringLiteral {
     pub id: NodeId,
