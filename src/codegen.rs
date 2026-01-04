@@ -33,8 +33,13 @@ pub fn generate_binary(program: &AnalysedProgram, nes: bool) -> Vec<u8> {
                     bytestream.write_signed_byte(instr.operand.unwrap());
                     address += 1;
                 } else if let Some(operand) = instr.operand {
-                    bytestream.write_byte(operand as u8);
-                    address += 1;
+                    if instr.mode.num_bytes() == 2 {
+                        bytestream.write_little_endian_word(operand);
+                        address += 2;
+                    } else {
+                        bytestream.write_byte(operand as u8);
+                        address += 1;
+                    }
                 }
             }
             AnalysedItem::Word(w) => {
@@ -66,6 +71,12 @@ impl Bytestream {
     /// Write a signed single byte
     pub fn write_signed_byte(&mut self, value: i32) {
         self.bytes.push(value as u8);
+    }
+
+    /// Write a little-endian word
+    pub fn write_little_endian_word(&mut self, value: i32) {
+        self.write_byte((value & 0x00ff).try_into().unwrap());
+        self.write_byte(((value & 0xff00) >> 8).try_into().unwrap());
     }
 
     /// Write iNES header

@@ -631,6 +631,14 @@ impl AddressMode {
             Self::ZeroPageYIdx => 2,
         }
     }
+
+    pub fn operand_bytes(&self) -> u8 {
+        match self {
+            Self::Absolute | Self::AbsoluteXIdx | Self::AbsoluteYIdx | Self::Indirect => 2,
+            Self::ImpliedAccumulator | Self::Implied => 0,
+            _ => 1,
+        }
+    }
 }
 
 pub struct ModeDetails {
