@@ -338,10 +338,10 @@ mod tests {
                 assert_eq!(instr.operands.len(), 2);
                 match &instr.operands[1] {
                     Operand::Number(x) => assert_eq!(x.value, 0x10),
-                    other => assert!(false, "Expected number, got {:#?}", other),
+                    other => panic!("Expected number, got {:#?}", other),
                 }
             }
-            other => assert!(false, "Expected instruction, got {:#?}", other),
+            other => panic!("Expected instruction, got {:#?}", other),
         }
     }
 }
