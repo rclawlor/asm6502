@@ -16,8 +16,10 @@ pub fn generate_binary(program: &AnalysedProgram, nes: bool) -> Vec<u8> {
     };
     for item in &program.items {
         if item.address() > address + 1 {
-            for _ in address..item.address() {
+            let start_addr = address;
+            for _ in start_addr..item.address() {
                 bytestream.write_byte(NULL_BYTE);
+                address += 1;
             }
         }
         match item {
@@ -35,7 +37,11 @@ pub fn generate_binary(program: &AnalysedProgram, nes: bool) -> Vec<u8> {
                     address += 1;
                 }
             }
-            AnalysedItem::Word(_) => todo!(),
+            AnalysedItem::Word(w) => {
+                // Little-endian
+                bytestream.write_byte(w.lower_byte());
+                bytestream.write_byte(w.upper_byte());
+            }
         }
     }
 

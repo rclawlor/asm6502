@@ -177,12 +177,22 @@ impl std::fmt::Display for AnalysedItem {
 #[derive(Clone, Debug)]
 pub struct AnalysedWord {
     address: u16,
-    word: u16,
+    value: u16,
+}
+
+impl AnalysedWord {
+    pub fn upper_byte(&self) -> u8 {
+        ((self.value & 0xff00) >> 8).try_into().unwrap()
+    }
+
+    pub fn lower_byte(&self) -> u8 {
+        (self.value & 0x00ff).try_into().unwrap()
+    }
 }
 
 impl std::fmt::Display for AnalysedWord {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:#06x}: {:#06x}", self.address, self.word,)
+        write!(f, "{:#06x}: {:#06x}", self.address, self.value)
     }
 }
 
@@ -263,6 +273,10 @@ impl SemanticAnalyser {
                         }
                         _ => self.error(String::from("Incorrect/missing argument"), pp.span, None),
                     },
+                    Directive::Dw => {
+                        let w = self.analyse_word(&pp);
+                        self.items.push(AnalysedItem::Word(w));
+                    }
                     _ => self.error(
                         format!(
                             "Preprocessor {:#?} should be resolved before semantic analysis",
@@ -301,6 +315,42 @@ impl SemanticAnalyser {
             span,
             help,
         });
+    }
+
+    fn analyse_word(&mut self, pp: &Preprocessor) -> AnalysedWord {
+        let value = match pp.args.first() {
+            Some(DirectiveItem::Number(n)) => n.value,
+            Some(DirectiveItem::Ident(i)) => {
+                if self.ast.labels.contains(&i.value) {
+                    if let Some(addr) = self.labels.get(&i.value) {
+                        *addr
+                    } else {
+                        self.unknown_labels
+                            .entry(i.value.clone())
+                            .or_default()
+                            .push(self.items.len());
+                        UNKNOWN_ADDR
+                    }
+                } else {
+                    self.error(format!("Label '{}' not found", i.value), i.span, None);
+                    UNKNOWN_ADDR
+                }
+            }
+            _ => {
+                self.error(
+                    String::from("Expected number or label for .dw"),
+                    pp.span,
+                    None,
+                );
+                UNKNOWN_ADDR
+            }
+        };
+        let word = AnalysedWord {
+            address: self.address,
+            value: value as u16,
+        };
+        self.address = self.address.wrapping_add(2);
+        word
     }
 
     fn analyse_instruction(&mut self, instr: &Instruction) -> AnalysedInstruction {
@@ -468,7 +518,7 @@ impl SemanticAnalyser {
             mode,
             operand,
         };
-        self.address += mode.num_bytes();
+        self.address = self.address.wrapping_add(mode.num_bytes());
 
         new_instr
     }
@@ -478,23 +528,24 @@ impl SemanticAnalyser {
         self.labels.insert(label.label.clone(), self.address.into());
         let unmapped_items = self.unknown_labels.remove(&label.label);
         if let Some(items) = unmapped_items {
-            for item in items.clone() {
-                if let AnalysedItem::Instruction(mut instr) = self.items[item] {
-                    match instr.mode {
+            for item in items {
+                match &mut self.items[item] {
+                    AnalysedItem::Instruction(instr) => match instr.mode {
                         AddressMode::Absolute => {
                             instr.operand = Some(self.address.into());
                         }
                         AddressMode::Relative => {
-                            let mut diff = i32::from(instr.address) - i32::from(self.address);
-                            if diff.abs() > 0xFF {
+                            let diff = i32::from(instr.address) - i32::from(self.address);
+                            if diff.abs() <= 0xFF {
+                                instr.operand = Some(diff);
+                            } else {
+                                instr.operand = Some(0x00);
                                 self.error(
                                     format!("Jump out of range (-128, +127): {diff:+}"),
                                     label.span,
                                     None,
                                 );
-                                diff = 0x00;
                             }
-                            instr.operand = Some(diff);
                         }
                         other => self.error(
                             format!(
@@ -504,6 +555,9 @@ impl SemanticAnalyser {
                             label.span,
                             None,
                         ),
+                    },
+                    AnalysedItem::Word(word) => {
+                        word.value = self.address;
                     }
                 }
             }
