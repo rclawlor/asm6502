@@ -48,8 +48,8 @@ fn main() {
     };
 
     if args.print {
-        for instr in &program.instructions {
-            println!("{instr}");
+        for item in &program.items {
+            println!("{item}");
         }
     }
 

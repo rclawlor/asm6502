@@ -1,4 +1,7 @@
-use crate::{ast::INesHeader, semantic::AnalysedProgram};
+use crate::{
+    ast::INesHeader,
+    semantic::{AnalysedItem, AnalysedProgram},
+};
 
 const NULL_BYTE: u8 = 0x00;
 
@@ -7,28 +10,44 @@ pub fn generate_binary(program: &AnalysedProgram, nes: bool) -> Vec<u8> {
     if nes {
         bytestream.write_ines_header(&program.header);
     }
-    let mut address = if program.instructions.is_empty() {
-        0x0000
-    } else {
-        program.instructions[0].address
+    let mut address = match program.items.first() {
+        Some(item) => item.address(),
+        None => 0x0000,
     };
-    for instr in &program.instructions {
-        if instr.address > address + 1 {
-            for _ in address..instr.address {
+    for item in &program.items {
+        if item.address() > address + 1 {
+            let start_addr = address;
+            for _ in start_addr..item.address() {
                 bytestream.write_byte(NULL_BYTE);
+                address += 1;
             }
         }
-        bytestream.write_byte(match instr.opcode.value(instr.mode) {
-            Some(b) => b,
-            None => panic!(),
-        });
-        address += 1;
-        if instr.opcode.is_relative() {
-            bytestream.write_signed_byte(instr.operand.unwrap());
-            address += 1;
-        } else if let Some(operand) = instr.operand {
-            bytestream.write_byte(operand as u8);
-            address += 1;
+        match item {
+            AnalysedItem::Instruction(instr) => {
+                bytestream.write_byte(match instr.opcode.value(instr.mode) {
+                    Some(b) => b,
+                    None => panic!(),
+                });
+                address += 1;
+                if instr.opcode.is_relative() {
+                    bytestream.write_signed_byte(instr.operand.unwrap());
+                    address += 1;
+                } else if let Some(operand) = instr.operand {
+                    if instr.mode.num_bytes() == 2 {
+                        bytestream.write_little_endian_word(operand);
+                        address += 2;
+                    } else {
+                        bytestream.write_byte(operand as u8);
+                        address += 1;
+                    }
+                }
+            }
+            AnalysedItem::Word(w) => {
+                // Little-endian
+                bytestream.write_byte(w.lower_byte());
+                bytestream.write_byte(w.upper_byte());
+            }
+            AnalysedItem::Byte(b) => bytestream.write_byte(b.value),
         }
     }
 
@@ -53,6 +72,12 @@ impl Bytestream {
     /// Write a signed single byte
     pub fn write_signed_byte(&mut self, value: i32) {
         self.bytes.push(value as u8);
+    }
+
+    /// Write a little-endian word
+    pub fn write_little_endian_word(&mut self, value: i32) {
+        self.write_byte((value & 0x00ff).try_into().unwrap());
+        self.write_byte(((value & 0xff00) >> 8).try_into().unwrap());
     }
 
     /// Write iNES header

@@ -74,6 +74,8 @@ impl SymbolResolver {
             Directive::Ineschr => self.items.push(ProgramItem::Preprocessor(pp.clone())),
             Directive::Inesmap => self.items.push(ProgramItem::Preprocessor(pp.clone())),
             Directive::Inesmir => self.items.push(ProgramItem::Preprocessor(pp.clone())),
+            Directive::Db => self.items.push(ProgramItem::Preprocessor(pp.clone())),
+            Directive::Dw => self.items.push(ProgramItem::Preprocessor(pp.clone())),
             Directive::Set => {
                 if pp.args.len() == 2 {
                     match &pp.args[0] {
@@ -145,13 +147,74 @@ impl SymbolResolver {
 
 #[derive(Clone, Debug)]
 pub struct AnalysedProgram {
-    pub instructions: Vec<AnalysedInstruction>,
+    pub items: Vec<AnalysedItem>,
     pub header: INesHeader,
+}
+
+#[derive(Clone, Debug)]
+pub enum AnalysedItem {
+    Word(AnalysedWord),
+    Byte(AnalysedByte),
+    Instruction(AnalysedInstruction),
+}
+
+impl AnalysedItem {
+    pub fn address(&self) -> u16 {
+        match self {
+            Self::Word(word) => word.address,
+            Self::Byte(byte) => byte.address,
+            Self::Instruction(instr) => instr.address,
+        }
+    }
+}
+
+impl std::fmt::Display for AnalysedItem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Word(word) => write!(f, "{}", word),
+            Self::Byte(byte) => write!(f, "{}", byte),
+            Self::Instruction(instr) => write!(f, "{}", instr),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct AnalysedByte {
+    address: u16,
+    pub value: u8,
+}
+
+impl std::fmt::Display for AnalysedByte {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:#06x}: {:#04x}", self.address, self.value)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct AnalysedWord {
+    address: u16,
+    pub value: u16,
+}
+
+impl AnalysedWord {
+    pub fn upper_byte(&self) -> u8 {
+        ((self.value & 0xff00) >> 8).try_into().unwrap()
+    }
+
+    pub fn lower_byte(&self) -> u8 {
+        (self.value & 0x00ff).try_into().unwrap()
+    }
+}
+
+impl std::fmt::Display for AnalysedWord {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:#06x}: {:#06x}", self.address, self.value)
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct AnalysedInstruction {
-    pub address: u16,
+    address: u16,
     pub opcode: Opcode,
     pub mode: AddressMode,
     pub operand: Option<i32>,
@@ -182,8 +245,8 @@ struct SemanticAnalyser {
     ast: Program,
     /// Current address
     address: u16,
-    /// Post-analysis instructions
-    instructions: Vec<AnalysedInstruction>,
+    /// Post-analysis items
+    items: Vec<AnalysedItem>,
     /// Labels and corresponding addresses
     labels: HashMap<String, i32>,
     /// Labels not yet found
@@ -196,7 +259,7 @@ impl SemanticAnalyser {
         SemanticAnalyser {
             ast,
             address: 0x0000,
-            instructions: Vec::new(),
+            items: Vec::new(),
             labels: HashMap::new(),
             unknown_labels: HashMap::new(),
             errors: Vec::new(),
@@ -209,7 +272,7 @@ impl SemanticAnalyser {
             match item {
                 ProgramItem::Instruction(instr) => {
                     let i = self.analyse_instruction(&instr);
-                    self.instructions.push(i);
+                    self.items.push(AnalysedItem::Instruction(i));
                 }
                 ProgramItem::Preprocessor(pp) => match pp.directive {
                     Directive::Inesprg => {
@@ -226,6 +289,14 @@ impl SemanticAnalyser {
                         }
                         _ => self.error(String::from("Incorrect/missing argument"), pp.span, None),
                     },
+                    Directive::Db => {
+                        let w = self.analyse_byte(&pp);
+                        self.items.push(AnalysedItem::Byte(w));
+                    }
+                    Directive::Dw => {
+                        let w = self.analyse_word(&pp);
+                        self.items.push(AnalysedItem::Word(w));
+                    }
                     _ => self.error(
                         format!(
                             "Preprocessor {:#?} should be resolved before semantic analysis",
@@ -239,7 +310,7 @@ impl SemanticAnalyser {
             }
         }
         AnalysedProgram {
-            instructions: self.instructions.clone(),
+            items: self.items.clone(),
             header,
         }
     }
@@ -264,6 +335,69 @@ impl SemanticAnalyser {
             span,
             help,
         });
+    }
+
+    fn analyse_word(&mut self, pp: &Preprocessor) -> AnalysedWord {
+        let value = match pp.args.first() {
+            Some(DirectiveItem::Number(n)) => n.value,
+            Some(DirectiveItem::Ident(i)) => {
+                if self.ast.labels.contains(&i.value) {
+                    if let Some(addr) = self.labels.get(&i.value) {
+                        *addr
+                    } else {
+                        self.unknown_labels
+                            .entry(i.value.clone())
+                            .or_default()
+                            .push(self.items.len());
+                        UNKNOWN_ADDR
+                    }
+                } else {
+                    self.error(format!("Label '{}' not found", i.value), i.span, None);
+                    UNKNOWN_ADDR
+                }
+            }
+            _ => {
+                self.error(
+                    String::from("Expected number or label for .dw"),
+                    pp.span,
+                    None,
+                );
+                UNKNOWN_ADDR
+            }
+        };
+        let word = AnalysedWord {
+            address: self.address,
+            value: value as u16,
+        };
+        self.address = self.address.wrapping_add(2);
+        word
+    }
+
+    fn analyse_byte(&mut self, pp: &Preprocessor) -> AnalysedByte {
+        let value = match pp.args.first() {
+            Some(DirectiveItem::Number(n)) => n.value,
+            Some(DirectiveItem::Ident(i)) => {
+                self.error(
+                    format!(
+                        "2 byte address for label '{}' exceeds .db 1 byte range",
+                        i.value
+                    ),
+                    i.span,
+                    None,
+                );
+                0x00
+            }
+            _ => {
+                self.error(String::from("Expected number for .dw"), pp.span, None);
+                UNKNOWN_ADDR
+            }
+        };
+        let byte = AnalysedByte {
+            address: self.address,
+            value: value as u8,
+        };
+        self.address = self.address.wrapping_add(1);
+        byte
     }
 
     fn analyse_instruction(&mut self, instr: &Instruction) -> AnalysedInstruction {
@@ -311,7 +445,7 @@ impl SemanticAnalyser {
                         self.unknown_labels
                             .entry(s.clone())
                             .or_default()
-                            .push(self.instructions.len());
+                            .push(self.items.len());
                         (m, Some(UNKNOWN_ADDR))
                     }
                 } else {
@@ -431,7 +565,7 @@ impl SemanticAnalyser {
             mode,
             operand,
         };
-        self.address += mode.num_bytes();
+        self.address = self.address.wrapping_add(mode.num_bytes());
 
         new_instr
     }
@@ -439,34 +573,50 @@ impl SemanticAnalyser {
     /// Insert (label, addr) pair into lookup and resolve
     fn analyse_label(&mut self, label: &Label) {
         self.labels.insert(label.label.clone(), self.address.into());
-        let unmapped_instrs = self.unknown_labels.remove(&label.label);
-        if let Some(instrs) = unmapped_instrs {
-            for instr in instrs.clone() {
-                match self.instructions[instr].mode {
-                    AddressMode::Absolute => {
-                        self.instructions[instr].operand = Some(self.address.into());
-                    }
-                    AddressMode::Relative => {
-                        let mut diff =
-                            i32::from(self.instructions[instr].address) - i32::from(self.address);
-                        if diff.abs() > 0xFF {
-                            self.error(
-                                format!("Jump out of range (-128, +127): {diff:+}"),
-                                label.span,
-                                None,
-                            );
-                            diff = 0x00;
+        let unmapped_items = self.unknown_labels.remove(&label.label);
+        if let Some(items) = unmapped_items {
+            for item in items {
+                match &mut self.items[item] {
+                    AnalysedItem::Instruction(instr) => match instr.mode {
+                        AddressMode::Absolute => {
+                            instr.operand = Some(self.address.into());
                         }
-                        self.instructions[instr].operand = Some(diff);
-                    }
-                    other => self.error(
-                        format!(
-                            "Invalid addressing mode '{:#?}' for label reference '{}'",
-                            other, label.label
+                        AddressMode::Relative => {
+                            let diff = i32::from(instr.address) - i32::from(self.address);
+                            if diff.abs() <= 0xFF {
+                                instr.operand = Some(diff);
+                            } else {
+                                instr.operand = Some(0x00);
+                                self.error(
+                                    format!("Jump out of range (-128, +127): {diff:+}"),
+                                    label.span,
+                                    None,
+                                );
+                            }
+                        }
+                        other => self.error(
+                            format!(
+                                "Invalid addressing mode '{:#?}' for label reference '{}'",
+                                other, label.label
+                            ),
+                            label.span,
+                            None,
                         ),
-                        label.span,
-                        None,
-                    ),
+                    },
+                    AnalysedItem::Word(word) => {
+                        word.value = self.address;
+                    }
+                    AnalysedItem::Byte(byte) => {
+                        byte.value = 0x00;
+                        self.error(
+                            format!(
+                                "Address '{}' for label '{}' exceeds byte definiton size",
+                                self.address, label.label
+                            ),
+                            label.span,
+                            None,
+                        );
+                    }
                 }
             }
         }
@@ -537,6 +687,14 @@ impl AddressMode {
             Self::ZeroPage => 2,
             Self::ZeroPageXIdx => 2,
             Self::ZeroPageYIdx => 2,
+        }
+    }
+
+    pub fn operand_bytes(&self) -> u8 {
+        match self {
+            Self::Absolute | Self::AbsoluteXIdx | Self::AbsoluteYIdx | Self::Indirect => 2,
+            Self::ImpliedAccumulator | Self::Implied => 0,
+            _ => 1,
         }
     }
 }
