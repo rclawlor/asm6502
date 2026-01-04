@@ -1,4 +1,7 @@
-use crate::{ast::INesHeader, semantic::AnalysedProgram};
+use crate::{
+    ast::INesHeader,
+    semantic::{AnalysedItem, AnalysedProgram},
+};
 
 const NULL_BYTE: u8 = 0x00;
 
@@ -7,28 +10,32 @@ pub fn generate_binary(program: &AnalysedProgram, nes: bool) -> Vec<u8> {
     if nes {
         bytestream.write_ines_header(&program.header);
     }
-    let mut address = if program.instructions.is_empty() {
-        0x0000
-    } else {
-        program.instructions[0].address
+    let mut address = match program.items.first() {
+        Some(item) => item.address(),
+        None => 0x0000,
     };
-    for instr in &program.instructions {
-        if instr.address > address + 1 {
-            for _ in address..instr.address {
+    for item in &program.items {
+        if item.address() > address + 1 {
+            for _ in address..item.address() {
                 bytestream.write_byte(NULL_BYTE);
             }
         }
-        bytestream.write_byte(match instr.opcode.value(instr.mode) {
-            Some(b) => b,
-            None => panic!(),
-        });
-        address += 1;
-        if instr.opcode.is_relative() {
-            bytestream.write_signed_byte(instr.operand.unwrap());
-            address += 1;
-        } else if let Some(operand) = instr.operand {
-            bytestream.write_byte(operand as u8);
-            address += 1;
+        match item {
+            AnalysedItem::Instruction(instr) => {
+                bytestream.write_byte(match instr.opcode.value(instr.mode) {
+                    Some(b) => b,
+                    None => panic!(),
+                });
+                address += 1;
+                if instr.opcode.is_relative() {
+                    bytestream.write_signed_byte(instr.operand.unwrap());
+                    address += 1;
+                } else if let Some(operand) = instr.operand {
+                    bytestream.write_byte(operand as u8);
+                    address += 1;
+                }
+            }
+            AnalysedItem::Word(_) => todo!(),
         }
     }
 

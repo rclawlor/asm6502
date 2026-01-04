@@ -74,6 +74,7 @@ impl SymbolResolver {
             Directive::Ineschr => self.items.push(ProgramItem::Preprocessor(pp.clone())),
             Directive::Inesmap => self.items.push(ProgramItem::Preprocessor(pp.clone())),
             Directive::Inesmir => self.items.push(ProgramItem::Preprocessor(pp.clone())),
+            Directive::Dw => self.items.push(ProgramItem::Preprocessor(pp.clone())),
             Directive::Set => {
                 if pp.args.len() == 2 {
                     match &pp.args[0] {
@@ -145,13 +146,49 @@ impl SymbolResolver {
 
 #[derive(Clone, Debug)]
 pub struct AnalysedProgram {
-    pub instructions: Vec<AnalysedInstruction>,
+    pub items: Vec<AnalysedItem>,
     pub header: INesHeader,
+}
+
+#[derive(Clone, Debug)]
+pub enum AnalysedItem {
+    Word(AnalysedWord),
+    Instruction(AnalysedInstruction),
+}
+
+impl AnalysedItem {
+    pub fn address(&self) -> u16 {
+        match self {
+            Self::Word(word) => word.address,
+            Self::Instruction(instr) => instr.address,
+        }
+    }
+}
+
+impl std::fmt::Display for AnalysedItem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Word(word) => write!(f, "{}", word),
+            Self::Instruction(instr) => write!(f, "{}", instr),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct AnalysedWord {
+    address: u16,
+    word: u16,
+}
+
+impl std::fmt::Display for AnalysedWord {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:#06x}: {:#06x}", self.address, self.word,)
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct AnalysedInstruction {
-    pub address: u16,
+    address: u16,
     pub opcode: Opcode,
     pub mode: AddressMode,
     pub operand: Option<i32>,
@@ -182,8 +219,8 @@ struct SemanticAnalyser {
     ast: Program,
     /// Current address
     address: u16,
-    /// Post-analysis instructions
-    instructions: Vec<AnalysedInstruction>,
+    /// Post-analysis items
+    items: Vec<AnalysedItem>,
     /// Labels and corresponding addresses
     labels: HashMap<String, i32>,
     /// Labels not yet found
@@ -196,7 +233,7 @@ impl SemanticAnalyser {
         SemanticAnalyser {
             ast,
             address: 0x0000,
-            instructions: Vec::new(),
+            items: Vec::new(),
             labels: HashMap::new(),
             unknown_labels: HashMap::new(),
             errors: Vec::new(),
@@ -209,7 +246,7 @@ impl SemanticAnalyser {
             match item {
                 ProgramItem::Instruction(instr) => {
                     let i = self.analyse_instruction(&instr);
-                    self.instructions.push(i);
+                    self.items.push(AnalysedItem::Instruction(i));
                 }
                 ProgramItem::Preprocessor(pp) => match pp.directive {
                     Directive::Inesprg => {
@@ -239,7 +276,7 @@ impl SemanticAnalyser {
             }
         }
         AnalysedProgram {
-            instructions: self.instructions.clone(),
+            items: self.items.clone(),
             header,
         }
     }
@@ -311,7 +348,7 @@ impl SemanticAnalyser {
                         self.unknown_labels
                             .entry(s.clone())
                             .or_default()
-                            .push(self.instructions.len());
+                            .push(self.items.len());
                         (m, Some(UNKNOWN_ADDR))
                     }
                 } else {
@@ -439,34 +476,35 @@ impl SemanticAnalyser {
     /// Insert (label, addr) pair into lookup and resolve
     fn analyse_label(&mut self, label: &Label) {
         self.labels.insert(label.label.clone(), self.address.into());
-        let unmapped_instrs = self.unknown_labels.remove(&label.label);
-        if let Some(instrs) = unmapped_instrs {
-            for instr in instrs.clone() {
-                match self.instructions[instr].mode {
-                    AddressMode::Absolute => {
-                        self.instructions[instr].operand = Some(self.address.into());
-                    }
-                    AddressMode::Relative => {
-                        let mut diff =
-                            i32::from(self.instructions[instr].address) - i32::from(self.address);
-                        if diff.abs() > 0xFF {
-                            self.error(
-                                format!("Jump out of range (-128, +127): {diff:+}"),
-                                label.span,
-                                None,
-                            );
-                            diff = 0x00;
+        let unmapped_items = self.unknown_labels.remove(&label.label);
+        if let Some(items) = unmapped_items {
+            for item in items.clone() {
+                if let AnalysedItem::Instruction(mut instr) = self.items[item] {
+                    match instr.mode {
+                        AddressMode::Absolute => {
+                            instr.operand = Some(self.address.into());
                         }
-                        self.instructions[instr].operand = Some(diff);
-                    }
-                    other => self.error(
-                        format!(
-                            "Invalid addressing mode '{:#?}' for label reference '{}'",
-                            other, label.label
+                        AddressMode::Relative => {
+                            let mut diff = i32::from(instr.address) - i32::from(self.address);
+                            if diff.abs() > 0xFF {
+                                self.error(
+                                    format!("Jump out of range (-128, +127): {diff:+}"),
+                                    label.span,
+                                    None,
+                                );
+                                diff = 0x00;
+                            }
+                            instr.operand = Some(diff);
+                        }
+                        other => self.error(
+                            format!(
+                                "Invalid addressing mode '{:#?}' for label reference '{}'",
+                                other, label.label
+                            ),
+                            label.span,
+                            None,
                         ),
-                        label.span,
-                        None,
-                    ),
+                    }
                 }
             }
         }
