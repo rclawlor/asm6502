@@ -58,6 +58,7 @@ pub enum ProgramItem {
     Preprocessor(Preprocessor),
     Instruction(Instruction),
     Label(Label),
+    Binary(Binary),
 }
 
 #[allow(dead_code)]
@@ -82,6 +83,14 @@ pub struct Label {
     pub id: NodeId,
     pub span: Span,
     pub label: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct Binary {
+    pub id: NodeId,
+    pub span: Span,
+    pub filename: String,
+    pub bytes: Vec<u8>,
 }
 
 #[allow(dead_code)]
@@ -155,6 +164,7 @@ pub enum Directive {
     Inesmir,
     Db,
     Dw,
+    Incbin,
     Set,
     Org,
 }

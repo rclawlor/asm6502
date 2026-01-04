@@ -1,13 +1,10 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, path::Path};
 
 use phf::phf_map;
 use strum::AsRefStr;
 
 use crate::{
-    ast::{
-        Directive, DirectiveItem, INesHeader, Instruction, Label, Opcode, Operand, Preprocessor,
-        Program, ProgramItem, Register, Span,
-    },
+    ast::*,
     error::CompileError,
 };
 
@@ -60,7 +57,7 @@ impl SymbolResolver {
             match item {
                 ProgramItem::Preprocessor(pp) => self.resolve_preprocessor(pp),
                 ProgramItem::Instruction(instr) => self.resolve_instruction(instr),
-                ProgramItem::Label(_) => self.items.push(item.clone()),
+                _ => self.items.push(item.clone()),
             }
         }
         let mut new_ast = self.ast.clone();
@@ -76,6 +73,10 @@ impl SymbolResolver {
             Directive::Inesmir => self.items.push(ProgramItem::Preprocessor(pp.clone())),
             Directive::Db => self.items.push(ProgramItem::Preprocessor(pp.clone())),
             Directive::Dw => self.items.push(ProgramItem::Preprocessor(pp.clone())),
+            Directive::Incbin => {
+                let bin = self.resolve_binary(pp);
+                self.items.push(ProgramItem::Binary(bin));
+            },
             Directive::Set => {
                 if pp.args.len() == 2 {
                     match &pp.args[0] {
@@ -99,6 +100,24 @@ impl SymbolResolver {
             }
             Directive::Org => self.items.push(ProgramItem::Preprocessor(pp.clone())),
         }
+    }
+
+    fn resolve_binary(&mut self, pp: &Preprocessor) -> Binary {
+        let (filename, span, bytes) = if let Some(DirectiveItem::String(s)) = pp.args.get(0) {
+            let b = match std::fs::read(&s.value) {
+                Ok(b) => b,
+                Err(e) => {
+                    println!("{e}");
+                    self.error(format!("Unable to read file '{}'", s.value), s.span, None);
+                    Vec::new()
+                }
+            };
+            (s.value.clone(), s.span, b)
+        } else {
+            (String::new(), pp.span, Vec::new())
+        };
+
+        Binary { id: next_node_id(), span, filename, bytes }
     }
 
     fn resolve_instruction(&mut self, instr: &Instruction) {
@@ -307,6 +326,12 @@ impl SemanticAnalyser {
                     ),
                 },
                 ProgramItem::Label(label) => self.analyse_label(&label),
+                ProgramItem::Binary(binary) => {
+                    for b in binary.bytes {
+                        self.items.push(AnalysedItem::Byte(AnalysedByte { address: self.address, value: b }));
+                        self.address = self.address.saturating_add(1);
+                    }
+                }
             }
         }
         AnalysedProgram {

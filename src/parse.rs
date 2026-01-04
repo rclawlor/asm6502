@@ -242,8 +242,10 @@ impl<'source> Parser<'source> {
     /// Parse a string literal
     fn parse_string(&mut self) -> StringLiteral {
         let loc = self.current.span;
-        let value = self.current.text.to_string();
+        let mut value = self.current.text.to_string();
         self.expect_token(TokenKind::String);
+        // Remove string identifiers
+        value = value.trim_matches(|c| c == '"' || c == '\'').to_string();
 
         StringLiteral {
             id: next_node_id(),
