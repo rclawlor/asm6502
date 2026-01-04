@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use phf::phf_map;
+use strum::AsRefStr;
 
 use crate::{
     ast::{
@@ -412,6 +413,18 @@ impl SemanticAnalyser {
             }
         };
 
+        if instr.opcode.value(mode).is_none() {
+            self.error(
+                format!(
+                    "Invalid addressing mode '{}' for instruction '{}'",
+                    mode.as_ref(),
+                    instr.opcode.as_ref().to_uppercase()
+                ),
+                instr.span,
+                Some(instr.opcode.as_help_str()),
+            )
+        };
+
         let new_instr = AnalysedInstruction {
             address: self.address,
             opcode: instr.opcode,
@@ -460,7 +473,7 @@ impl SemanticAnalyser {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(AsRefStr, Copy, Clone, Debug, PartialEq, Eq)]
 pub enum AddressMode {
     /// OPC A
     ImpliedAccumulator,
