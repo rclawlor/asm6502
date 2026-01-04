@@ -74,6 +74,7 @@ impl SymbolResolver {
             Directive::Ineschr => self.items.push(ProgramItem::Preprocessor(pp.clone())),
             Directive::Inesmap => self.items.push(ProgramItem::Preprocessor(pp.clone())),
             Directive::Inesmir => self.items.push(ProgramItem::Preprocessor(pp.clone())),
+            Directive::Db => self.items.push(ProgramItem::Preprocessor(pp.clone())),
             Directive::Dw => self.items.push(ProgramItem::Preprocessor(pp.clone())),
             Directive::Set => {
                 if pp.args.len() == 2 {
@@ -153,6 +154,7 @@ pub struct AnalysedProgram {
 #[derive(Clone, Debug)]
 pub enum AnalysedItem {
     Word(AnalysedWord),
+    Byte(AnalysedByte),
     Instruction(AnalysedInstruction),
 }
 
@@ -160,6 +162,7 @@ impl AnalysedItem {
     pub fn address(&self) -> u16 {
         match self {
             Self::Word(word) => word.address,
+            Self::Byte(byte) => byte.address,
             Self::Instruction(instr) => instr.address,
         }
     }
@@ -169,15 +172,28 @@ impl std::fmt::Display for AnalysedItem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Word(word) => write!(f, "{}", word),
+            Self::Byte(byte) => write!(f, "{}", byte),
             Self::Instruction(instr) => write!(f, "{}", instr),
         }
     }
 }
 
 #[derive(Clone, Debug)]
+pub struct AnalysedByte {
+    address: u16,
+    pub value: u8,
+}
+
+impl std::fmt::Display for AnalysedByte {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:#06x}: {:#04x}", self.address, self.value)
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct AnalysedWord {
     address: u16,
-    value: u16,
+    pub value: u16,
 }
 
 impl AnalysedWord {
@@ -273,6 +289,10 @@ impl SemanticAnalyser {
                         }
                         _ => self.error(String::from("Incorrect/missing argument"), pp.span, None),
                     },
+                    Directive::Db => {
+                        let w = self.analyse_byte(&pp);
+                        self.items.push(AnalysedItem::Byte(w));
+                    }
                     Directive::Dw => {
                         let w = self.analyse_word(&pp);
                         self.items.push(AnalysedItem::Word(w));
@@ -351,6 +371,33 @@ impl SemanticAnalyser {
         };
         self.address = self.address.wrapping_add(2);
         word
+    }
+
+    fn analyse_byte(&mut self, pp: &Preprocessor) -> AnalysedByte {
+        let value = match pp.args.first() {
+            Some(DirectiveItem::Number(n)) => n.value,
+            Some(DirectiveItem::Ident(i)) => {
+                self.error(
+                    format!(
+                        "2 byte address for label '{}' exceeds .db 1 byte range",
+                        i.value
+                    ),
+                    i.span,
+                    None,
+                );
+                0x00
+            }
+            _ => {
+                self.error(String::from("Expected number for .dw"), pp.span, None);
+                UNKNOWN_ADDR
+            }
+        };
+        let byte = AnalysedByte {
+            address: self.address,
+            value: value as u8,
+        };
+        self.address = self.address.wrapping_add(1);
+        byte
     }
 
     fn analyse_instruction(&mut self, instr: &Instruction) -> AnalysedInstruction {
@@ -558,6 +605,17 @@ impl SemanticAnalyser {
                     },
                     AnalysedItem::Word(word) => {
                         word.value = self.address;
+                    }
+                    AnalysedItem::Byte(byte) => {
+                        byte.value = 0x00;
+                        self.error(
+                            format!(
+                                "Address '{}' for label '{}' exceeds byte definiton size",
+                                self.address, label.label
+                            ),
+                            label.span,
+                            None,
+                        );
                     }
                 }
             }

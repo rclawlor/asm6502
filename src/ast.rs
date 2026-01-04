@@ -153,6 +153,7 @@ pub enum Directive {
     Ineschr,
     Inesmap,
     Inesmir,
+    Db,
     Dw,
     Set,
     Org,

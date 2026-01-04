@@ -47,6 +47,7 @@ pub fn generate_binary(program: &AnalysedProgram, nes: bool) -> Vec<u8> {
                 bytestream.write_byte(w.lower_byte());
                 bytestream.write_byte(w.upper_byte());
             }
+            AnalysedItem::Byte(b) => bytestream.write_byte(b.value),
         }
     }
 
