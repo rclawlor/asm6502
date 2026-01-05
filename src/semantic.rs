@@ -1,12 +1,9 @@
-use std::{collections::HashMap, path::Path};
+use std::collections::HashMap;
 
 use phf::phf_map;
 use strum::AsRefStr;
 
-use crate::{
-    ast::*,
-    error::CompileError,
-};
+use crate::{ast::*, error::CompileError};
 
 const UNKNOWN_ADDR: i32 = -0x0001;
 
@@ -67,16 +64,10 @@ impl SymbolResolver {
 
     fn resolve_preprocessor(&mut self, pp: &Preprocessor) {
         match pp.directive {
-            Directive::Inesprg => self.items.push(ProgramItem::Preprocessor(pp.clone())),
-            Directive::Ineschr => self.items.push(ProgramItem::Preprocessor(pp.clone())),
-            Directive::Inesmap => self.items.push(ProgramItem::Preprocessor(pp.clone())),
-            Directive::Inesmir => self.items.push(ProgramItem::Preprocessor(pp.clone())),
-            Directive::Db => self.items.push(ProgramItem::Preprocessor(pp.clone())),
-            Directive::Dw => self.items.push(ProgramItem::Preprocessor(pp.clone())),
             Directive::Incbin => {
                 let bin = self.resolve_binary(pp);
                 self.items.push(ProgramItem::Binary(bin));
-            },
+            }
             Directive::Set => {
                 if pp.args.len() == 2 {
                     match &pp.args[0] {
@@ -98,12 +89,12 @@ impl SymbolResolver {
                     );
                 }
             }
-            Directive::Org => self.items.push(ProgramItem::Preprocessor(pp.clone())),
+            _ => self.items.push(ProgramItem::Preprocessor(pp.clone())),
         }
     }
 
     fn resolve_binary(&mut self, pp: &Preprocessor) -> Binary {
-        let (filename, span, bytes) = if let Some(DirectiveItem::String(s)) = pp.args.get(0) {
+        let (filename, span, bytes) = if let Some(DirectiveItem::String(s)) = pp.args.first() {
             let b = match std::fs::read(&s.value) {
                 Ok(b) => b,
                 Err(e) => {
@@ -117,7 +108,12 @@ impl SymbolResolver {
             (String::new(), pp.span, Vec::new())
         };
 
-        Binary { id: next_node_id(), span, filename, bytes }
+        Binary {
+            id: next_node_id(),
+            span,
+            filename,
+            bytes,
+        }
     }
 
     fn resolve_instruction(&mut self, instr: &Instruction) {
@@ -316,6 +312,9 @@ impl SemanticAnalyser {
                         let w = self.analyse_word(&pp);
                         self.items.push(AnalysedItem::Word(w));
                     }
+                    Directive::Pad => {
+                        self.analyse_pad(&pp);
+                    }
                     _ => self.error(
                         format!(
                             "Preprocessor {:#?} should be resolved before semantic analysis",
@@ -328,7 +327,10 @@ impl SemanticAnalyser {
                 ProgramItem::Label(label) => self.analyse_label(&label),
                 ProgramItem::Binary(binary) => {
                     for b in binary.bytes {
-                        self.items.push(AnalysedItem::Byte(AnalysedByte { address: self.address, value: b }));
+                        self.items.push(AnalysedItem::Byte(AnalysedByte {
+                            address: self.address,
+                            value: b,
+                        }));
                         self.address = self.address.saturating_add(1);
                     }
                 }
@@ -425,6 +427,26 @@ impl SemanticAnalyser {
         byte
     }
 
+    fn analyse_pad(&mut self, pp: &Preprocessor) {
+        let target_addr = if let Some(DirectiveItem::Number(n)) = pp.args.first() {
+            n.value as u16
+        } else {
+            self.error(
+                String::from("Expected target address for .pad preprocessor"),
+                pp.span,
+                None,
+            );
+            0
+        };
+        while self.address < target_addr {
+            self.items.push(AnalysedItem::Byte(AnalysedByte {
+                address: self.address,
+                value: 0x00,
+            }));
+            self.address = self.address.saturating_add(1);
+        }
+    }
+
     fn analyse_instruction(&mut self, instr: &Instruction) -> AnalysedInstruction {
         let (mode, operand) = match &instr.operands[..] {
             // Accumulator or implied
@@ -478,13 +500,39 @@ impl SemanticAnalyser {
                     (m, Some(0x0000))
                 }
             }
-            // Absolute, X-indexed
-            [Operand::Number(n), Operand::Register(Register::X)] => {
-                (AddressMode::AbsoluteXIdx, Some(n.value))
+            // Absolute, X-indexed with label
+            [Operand::AddrLabel(s), Operand::Idx, Operand::Register(Register::X)] => {
+                if self.ast.labels.contains(s) {
+                    if let Some(addr) = self.labels.get(s) {
+                        (AddressMode::AbsoluteXIdx, Some(*addr))
+                    } else {
+                        self.unknown_labels
+                            .entry(s.clone())
+                            .or_default()
+                            .push(self.items.len());
+                        (AddressMode::AbsoluteXIdx, Some(UNKNOWN_ADDR))
+                    }
+                } else {
+                    self.error(format!("Label '{s}' not found"), instr.span, None);
+                    (AddressMode::AbsoluteXIdx, Some(0x0000))
+                }
             }
-            // Absolute, Y-indexed
-            [Operand::Number(n), Operand::Register(Register::Y)] => {
-                (AddressMode::AbsoluteYIdx, Some(n.value))
+            // Absolute, Y-indexed with label
+            [Operand::AddrLabel(s), Operand::Idx, Operand::Register(Register::Y)] => {
+                if self.ast.labels.contains(s) {
+                    if let Some(addr) = self.labels.get(s) {
+                        (AddressMode::AbsoluteYIdx, Some(*addr))
+                    } else {
+                        self.unknown_labels
+                            .entry(s.clone())
+                            .or_default()
+                            .push(self.items.len());
+                        (AddressMode::AbsoluteYIdx, Some(UNKNOWN_ADDR))
+                    }
+                } else {
+                    self.error(format!("Label '{s}' not found"), instr.span, None);
+                    (AddressMode::AbsoluteYIdx, Some(0x0000))
+                }
             }
             // Immediate
             [Operand::Immediate, Operand::Number(n)] => {
@@ -534,35 +582,24 @@ impl SemanticAnalyser {
                 }
                 (AddressMode::IndirectYIdx, Some(n.value))
             }
-            // Zeropage, X-indexed
+            // Zeropage, X-indexed or Absolute, X-indexed
             [Operand::Number(n), Operand::Idx, Operand::Register(Register::X)] => {
                 if n.value > 0xFF {
-                    self.error(
-                        format!(
-                            "Zeropage, X-indexed mode argument cannot exceed 1 byte, got '{}'",
-                            n.value
-                        ),
-                        n.span,
-                        None,
-                    );
+                    (AddressMode::AbsoluteXIdx, Some(n.value))
+                } else {
+                    (AddressMode::ZeroPageXIdx, Some(n.value))
                 }
-                (AddressMode::ZeroPageXIdx, Some(n.value))
             }
-            // Zeropage, Y-indexed
+            // Zeropage, Y-indexed or Absolute, Y-indexed
             [Operand::Number(n), Operand::Idx, Operand::Register(Register::Y)] => {
                 if n.value > 0xFF {
-                    self.error(
-                        format!(
-                            "Zeropage, X-indexed mode argument cannot exceed 1 byte, got '{}'",
-                            n.value
-                        ),
-                        n.span,
-                        None,
-                    );
+                    (AddressMode::AbsoluteYIdx, Some(n.value))
+                } else {
+                    (AddressMode::ZeroPageYIdx, Some(n.value))
                 }
-                (AddressMode::ZeroPageYIdx, Some(n.value))
             }
-            _ => {
+            other => {
+                println!("{:#?}", other);
                 self.error(
                     String::from("Invalid addressing mode"),
                     instr.span,
@@ -603,7 +640,9 @@ impl SemanticAnalyser {
             for item in items {
                 match &mut self.items[item] {
                     AnalysedItem::Instruction(instr) => match instr.mode {
-                        AddressMode::Absolute => {
+                        AddressMode::Absolute
+                        | AddressMode::AbsoluteXIdx
+                        | AddressMode::AbsoluteYIdx => {
                             instr.operand = Some(self.address.into());
                         }
                         AddressMode::Relative => {

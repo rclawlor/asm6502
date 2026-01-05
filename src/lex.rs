@@ -209,7 +209,7 @@ impl<'source> Lexer<'source> {
     }
 
     /// Check if source file finished
-    fn at_end(&self) -> bool {
+    pub fn at_end(&self) -> bool {
         self.pos >= self.source.len()
     }
 }

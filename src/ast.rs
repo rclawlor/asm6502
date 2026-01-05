@@ -85,6 +85,7 @@ pub struct Label {
     pub label: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct Binary {
     pub id: NodeId,
@@ -165,8 +166,9 @@ pub enum Directive {
     Db,
     Dw,
     Incbin,
-    Set,
+    Pad,
     Org,
+    Set,
 }
 
 impl Directive {
