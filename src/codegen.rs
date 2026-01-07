@@ -80,7 +80,7 @@ impl Bytestream {
             self.bytes
                 .push((0xff ^ u8::try_from(value.abs() & 0xff).unwrap()) + 1)
         } else {
-            self.bytes.push(value as u8);
+            self.bytes.push((value & 0xff) as u8);
         }
     }
 

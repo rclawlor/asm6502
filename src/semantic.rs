@@ -475,7 +475,8 @@ impl SemanticAnalyser {
                 if self.ast.labels.contains(s) {
                     if let Some(addr) = self.labels.get(s) {
                         if m == AddressMode::Relative {
-                            let mut diff = *addr - i32::from(self.address);
+                            // Difference is w.r.t. PC after instruction is executed, hence +2
+                            let mut diff = *addr - i32::from(self.address + 2);
                             if !(-128..=127).contains(&diff) {
                                 self.error(
                                     format!("Jump out of range (-128, +127): {diff:+}"),
@@ -646,7 +647,7 @@ impl SemanticAnalyser {
                             instr.operand = Some(self.address.into());
                         }
                         AddressMode::Relative => {
-                            let diff = i32::from(self.address) - i32::from(instr.address);
+                            let diff = i32::from(self.address + 2) - i32::from(instr.address);
                             if diff.abs() <= 0xFF {
                                 instr.operand = Some(diff);
                             } else {
