@@ -26,7 +26,11 @@ pub fn generate_binary(program: &AnalysedProgram, nes: bool) -> Vec<u8> {
             AnalysedItem::Instruction(instr) => {
                 bytestream.write_byte(match instr.opcode.value(instr.mode) {
                     Some(b) => b,
-                    None => panic!(),
+                    None => panic!(
+                        "No matching instruction mode '{}' for '{}'",
+                        instr.mode.as_ref(),
+                        instr.opcode.as_ref(),
+                    ),
                 });
                 if instr.opcode.is_relative() {
                     bytestream.write_signed_byte(instr.operand.unwrap());
@@ -52,7 +56,6 @@ pub fn generate_binary(program: &AnalysedProgram, nes: bool) -> Vec<u8> {
         }
     }
 
-    println!("{}", bytestream.bytes.len());
     bytestream.bytes
 }
 
@@ -73,7 +76,12 @@ impl Bytestream {
 
     /// Write a signed single byte
     pub fn write_signed_byte(&mut self, value: i32) {
-        self.bytes.push(value as u8);
+        if value < 0 {
+            self.bytes
+                .push((0xff ^ u8::try_from(value.abs() & 0xff).unwrap()) + 1)
+        } else {
+            self.bytes.push(value as u8);
+        }
     }
 
     /// Write a little-endian word

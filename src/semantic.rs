@@ -646,7 +646,7 @@ impl SemanticAnalyser {
                             instr.operand = Some(self.address.into());
                         }
                         AddressMode::Relative => {
-                            let diff = i32::from(instr.address) - i32::from(self.address);
+                            let diff = i32::from(self.address) - i32::from(instr.address);
                             if diff.abs() <= 0xFF {
                                 instr.operand = Some(diff);
                             } else {
