@@ -647,7 +647,7 @@ impl SemanticAnalyser {
                             instr.operand = Some(self.address.into());
                         }
                         AddressMode::Relative => {
-                            let diff = i32::from(self.address + 2) - i32::from(instr.address);
+                            let diff = i32::from(self.address) - i32::from(instr.address + 2);
                             if diff.abs() <= 0xFF {
                                 instr.operand = Some(diff);
                             } else {
@@ -896,7 +896,7 @@ pub static INSTRUCTION_SET: phf::Map<&'static str, &'static [ModeDetails]> = phf
         ModeDetails { mode: AddressMode::Absolute, opcode: 0x4E },
         ModeDetails { mode: AddressMode::AbsoluteXIdx, opcode: 0x5E },
     ],
-    "Nop" => &[ModeDetails { mode: AddressMode::Absolute, opcode: 0xEA }],
+    "Nop" => &[ModeDetails { mode: AddressMode::Implied, opcode: 0xEA }],
     "Ora" => &[
         ModeDetails { mode: AddressMode::Immediate, opcode: 0x09 },
         ModeDetails { mode: AddressMode::ZeroPage, opcode: 0x05 },
@@ -966,3 +966,75 @@ pub static INSTRUCTION_SET: phf::Map<&'static str, &'static [ModeDetails]> = phf
     "Txs" => &[ModeDetails { mode: AddressMode::Implied, opcode: 0x9A }],
     "Tya" => &[ModeDetails { mode: AddressMode::Implied, opcode: 0x98 }]
 };
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::assemble::assemble;
+
+    #[test]
+    fn test_past_label_resolution() {
+        let program = "
+            Label:
+                JMP Label
+        ";
+        let ast = assemble(program, "");
+        match semantic_analysis(&ast) {
+            Ok(program) => {
+                assert_eq!(program.items.len(), 1);
+                match program.items.get(0) {
+                    Some(AnalysedItem::Instruction(instr)) => {
+                        assert_eq!(instr.operand, Some(0x0000));
+                    },
+                    _ => panic!("Expected instruction"),
+                }
+            },
+            Err(e) => panic!("Failed to analyse program: {:#?}", e),
+        }
+    }
+
+    #[test]
+    fn test_forward_label_resolution() {
+        let program = "
+                JMP Label
+            Label:
+                NOP
+        ";
+        let ast = assemble(program, "");
+        match semantic_analysis(&ast) {
+            Ok(program) => {
+                assert_eq!(program.items.len(), 2);
+                match program.items.get(0) {
+                    Some(AnalysedItem::Instruction(instr)) => {
+                        assert_eq!(instr.operand, Some(0x0003));
+                    },
+                    _ => panic!("Expected instruction"),
+                }
+            },
+            Err(e) => panic!("Failed to analyse program: {:#?}", e),
+        }
+    }
+
+    #[test]
+    fn test_relative_jumps() {
+        let program = "
+                BEQ Label
+            Label:
+                NOP
+        ";
+        let ast = assemble(program, "");
+        match semantic_analysis(&ast) {
+            Ok(program) => {
+                assert_eq!(program.items.len(), 2);
+                match program.items.get(0) {
+                    Some(AnalysedItem::Instruction(instr)) => {
+                        assert_eq!(instr.operand, Some(0x0000));
+                    },
+                    _ => panic!("Expected instruction"),
+                }
+            },
+            Err(e) => panic!("Failed to analyse program: {:#?}", e),
+        }
+    }
+}
