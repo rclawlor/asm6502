@@ -1,7 +1,7 @@
 # asm6502
 ![Rust CI](https://github.com/rclawlor/asm6502/actions/workflows/ci.yml/badge.svg)
 
-A 6502 assembler written in Rust.
+A 6502 assembler, written in Rust.
 
 # Requirements
 asm6502 requires the Rust toolchain for building which can be found [here](https://rust-lang.org/tools/install/).
