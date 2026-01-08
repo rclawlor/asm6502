@@ -13,9 +13,15 @@ The latest asm6502 binaries can be found [here]() (once v0.1 has been released).
 asm6502.exe [OPTIONS] --file <FILE> --output <OUTPUT>
 
 Options:
+
   -f, --file <FILE>      The path to the file to read
+
   -n, --nes              Compile to iNES format
+
   -o, --output <OUTPUT>  Output filename
+
   -p, --print            Print assembled program
+
   -h, --help             Print help
+
   -V, --version          Print version
