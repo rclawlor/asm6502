@@ -3,13 +3,7 @@ use std::collections::HashMap;
 use phf::phf_map;
 use strum::AsRefStr;
 
-use crate::{
-    ast::{
-        Directive, DirectiveItem, INesHeader, Instruction, Label, Opcode, Operand, Preprocessor,
-        Program, ProgramItem, Register, Span,
-    },
-    error::CompileError,
-};
+use crate::{ast::*, error::CompileError};
 
 const UNKNOWN_ADDR: i32 = -0x0001;
 
@@ -60,7 +54,7 @@ impl SymbolResolver {
             match item {
                 ProgramItem::Preprocessor(pp) => self.resolve_preprocessor(pp),
                 ProgramItem::Instruction(instr) => self.resolve_instruction(instr),
-                ProgramItem::Label(_) => self.items.push(item.clone()),
+                _ => self.items.push(item.clone()),
             }
         }
         let mut new_ast = self.ast.clone();
@@ -70,12 +64,10 @@ impl SymbolResolver {
 
     fn resolve_preprocessor(&mut self, pp: &Preprocessor) {
         match pp.directive {
-            Directive::Inesprg => self.items.push(ProgramItem::Preprocessor(pp.clone())),
-            Directive::Ineschr => self.items.push(ProgramItem::Preprocessor(pp.clone())),
-            Directive::Inesmap => self.items.push(ProgramItem::Preprocessor(pp.clone())),
-            Directive::Inesmir => self.items.push(ProgramItem::Preprocessor(pp.clone())),
-            Directive::Db => self.items.push(ProgramItem::Preprocessor(pp.clone())),
-            Directive::Dw => self.items.push(ProgramItem::Preprocessor(pp.clone())),
+            Directive::Incbin => {
+                let bin = self.resolve_binary(pp);
+                self.items.push(ProgramItem::Binary(bin));
+            }
             Directive::Set => {
                 if pp.args.len() == 2 {
                     match &pp.args[0] {
@@ -97,7 +89,30 @@ impl SymbolResolver {
                     );
                 }
             }
-            Directive::Org => self.items.push(ProgramItem::Preprocessor(pp.clone())),
+            _ => self.items.push(ProgramItem::Preprocessor(pp.clone())),
+        }
+    }
+
+    fn resolve_binary(&mut self, pp: &Preprocessor) -> Binary {
+        let (filename, span, bytes) = if let Some(DirectiveItem::String(s)) = pp.args.first() {
+            let b = match std::fs::read(&s.value) {
+                Ok(b) => b,
+                Err(e) => {
+                    println!("{e}");
+                    self.error(format!("Unable to read file '{}'", s.value), s.span, None);
+                    Vec::new()
+                }
+            };
+            (s.value.clone(), s.span, b)
+        } else {
+            (String::new(), pp.span, Vec::new())
+        };
+
+        Binary {
+            id: next_node_id(),
+            span,
+            filename,
+            bytes,
         }
     }
 
@@ -297,6 +312,9 @@ impl SemanticAnalyser {
                         let w = self.analyse_word(&pp);
                         self.items.push(AnalysedItem::Word(w));
                     }
+                    Directive::Pad => {
+                        self.analyse_pad(&pp);
+                    }
                     _ => self.error(
                         format!(
                             "Preprocessor {:#?} should be resolved before semantic analysis",
@@ -307,6 +325,15 @@ impl SemanticAnalyser {
                     ),
                 },
                 ProgramItem::Label(label) => self.analyse_label(&label),
+                ProgramItem::Binary(binary) => {
+                    for b in binary.bytes {
+                        self.items.push(AnalysedItem::Byte(AnalysedByte {
+                            address: self.address,
+                            value: b,
+                        }));
+                        self.address = self.address.saturating_add(1);
+                    }
+                }
             }
         }
         AnalysedProgram {
@@ -400,6 +427,26 @@ impl SemanticAnalyser {
         byte
     }
 
+    fn analyse_pad(&mut self, pp: &Preprocessor) {
+        let target_addr = if let Some(DirectiveItem::Number(n)) = pp.args.first() {
+            n.value as u16
+        } else {
+            self.error(
+                String::from("Expected target address for .pad preprocessor"),
+                pp.span,
+                None,
+            );
+            0
+        };
+        while self.address < target_addr {
+            self.items.push(AnalysedItem::Byte(AnalysedByte {
+                address: self.address,
+                value: 0x00,
+            }));
+            self.address = self.address.saturating_add(1);
+        }
+    }
+
     fn analyse_instruction(&mut self, instr: &Instruction) -> AnalysedInstruction {
         let (mode, operand) = match &instr.operands[..] {
             // Accumulator or implied
@@ -428,7 +475,8 @@ impl SemanticAnalyser {
                 if self.ast.labels.contains(s) {
                     if let Some(addr) = self.labels.get(s) {
                         if m == AddressMode::Relative {
-                            let mut diff = *addr - i32::from(self.address);
+                            // Difference is w.r.t. PC after instruction is executed, hence +2
+                            let mut diff = *addr - i32::from(self.address + 2);
                             if !(-128..=127).contains(&diff) {
                                 self.error(
                                     format!("Jump out of range (-128, +127): {diff:+}"),
@@ -453,13 +501,39 @@ impl SemanticAnalyser {
                     (m, Some(0x0000))
                 }
             }
-            // Absolute, X-indexed
-            [Operand::Number(n), Operand::Register(Register::X)] => {
-                (AddressMode::AbsoluteXIdx, Some(n.value))
+            // Absolute, X-indexed with label
+            [Operand::AddrLabel(s), Operand::Idx, Operand::Register(Register::X)] => {
+                if self.ast.labels.contains(s) {
+                    if let Some(addr) = self.labels.get(s) {
+                        (AddressMode::AbsoluteXIdx, Some(*addr))
+                    } else {
+                        self.unknown_labels
+                            .entry(s.clone())
+                            .or_default()
+                            .push(self.items.len());
+                        (AddressMode::AbsoluteXIdx, Some(UNKNOWN_ADDR))
+                    }
+                } else {
+                    self.error(format!("Label '{s}' not found"), instr.span, None);
+                    (AddressMode::AbsoluteXIdx, Some(0x0000))
+                }
             }
-            // Absolute, Y-indexed
-            [Operand::Number(n), Operand::Register(Register::Y)] => {
-                (AddressMode::AbsoluteYIdx, Some(n.value))
+            // Absolute, Y-indexed with label
+            [Operand::AddrLabel(s), Operand::Idx, Operand::Register(Register::Y)] => {
+                if self.ast.labels.contains(s) {
+                    if let Some(addr) = self.labels.get(s) {
+                        (AddressMode::AbsoluteYIdx, Some(*addr))
+                    } else {
+                        self.unknown_labels
+                            .entry(s.clone())
+                            .or_default()
+                            .push(self.items.len());
+                        (AddressMode::AbsoluteYIdx, Some(UNKNOWN_ADDR))
+                    }
+                } else {
+                    self.error(format!("Label '{s}' not found"), instr.span, None);
+                    (AddressMode::AbsoluteYIdx, Some(0x0000))
+                }
             }
             // Immediate
             [Operand::Immediate, Operand::Number(n)] => {
@@ -509,35 +583,24 @@ impl SemanticAnalyser {
                 }
                 (AddressMode::IndirectYIdx, Some(n.value))
             }
-            // Zeropage, X-indexed
+            // Zeropage, X-indexed or Absolute, X-indexed
             [Operand::Number(n), Operand::Idx, Operand::Register(Register::X)] => {
                 if n.value > 0xFF {
-                    self.error(
-                        format!(
-                            "Zeropage, X-indexed mode argument cannot exceed 1 byte, got '{}'",
-                            n.value
-                        ),
-                        n.span,
-                        None,
-                    );
+                    (AddressMode::AbsoluteXIdx, Some(n.value))
+                } else {
+                    (AddressMode::ZeroPageXIdx, Some(n.value))
                 }
-                (AddressMode::ZeroPageXIdx, Some(n.value))
             }
-            // Zeropage, Y-indexed
+            // Zeropage, Y-indexed or Absolute, Y-indexed
             [Operand::Number(n), Operand::Idx, Operand::Register(Register::Y)] => {
                 if n.value > 0xFF {
-                    self.error(
-                        format!(
-                            "Zeropage, X-indexed mode argument cannot exceed 1 byte, got '{}'",
-                            n.value
-                        ),
-                        n.span,
-                        None,
-                    );
+                    (AddressMode::AbsoluteYIdx, Some(n.value))
+                } else {
+                    (AddressMode::ZeroPageYIdx, Some(n.value))
                 }
-                (AddressMode::ZeroPageYIdx, Some(n.value))
             }
-            _ => {
+            other => {
+                println!("{:#?}", other);
                 self.error(
                     String::from("Invalid addressing mode"),
                     instr.span,
@@ -578,11 +641,13 @@ impl SemanticAnalyser {
             for item in items {
                 match &mut self.items[item] {
                     AnalysedItem::Instruction(instr) => match instr.mode {
-                        AddressMode::Absolute => {
+                        AddressMode::Absolute
+                        | AddressMode::AbsoluteXIdx
+                        | AddressMode::AbsoluteYIdx => {
                             instr.operand = Some(self.address.into());
                         }
                         AddressMode::Relative => {
-                            let diff = i32::from(instr.address) - i32::from(self.address);
+                            let diff = i32::from(self.address) - i32::from(instr.address + 2);
                             if diff.abs() <= 0xFF {
                                 instr.operand = Some(diff);
                             } else {
@@ -831,7 +896,7 @@ pub static INSTRUCTION_SET: phf::Map<&'static str, &'static [ModeDetails]> = phf
         ModeDetails { mode: AddressMode::Absolute, opcode: 0x4E },
         ModeDetails { mode: AddressMode::AbsoluteXIdx, opcode: 0x5E },
     ],
-    "Nop" => &[ModeDetails { mode: AddressMode::Absolute, opcode: 0xEA }],
+    "Nop" => &[ModeDetails { mode: AddressMode::Implied, opcode: 0xEA }],
     "Ora" => &[
         ModeDetails { mode: AddressMode::Immediate, opcode: 0x09 },
         ModeDetails { mode: AddressMode::ZeroPage, opcode: 0x05 },
@@ -901,3 +966,74 @@ pub static INSTRUCTION_SET: phf::Map<&'static str, &'static [ModeDetails]> = phf
     "Txs" => &[ModeDetails { mode: AddressMode::Implied, opcode: 0x9A }],
     "Tya" => &[ModeDetails { mode: AddressMode::Implied, opcode: 0x98 }]
 };
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::assemble::assemble;
+
+    #[test]
+    fn test_past_label_resolution() {
+        let program = "
+            Label:
+                JMP Label
+        ";
+        let ast = assemble(program, "");
+        match semantic_analysis(&ast) {
+            Ok(program) => {
+                assert_eq!(program.items.len(), 1);
+                match program.items.first() {
+                    Some(AnalysedItem::Instruction(instr)) => {
+                        assert_eq!(instr.operand, Some(0x0000));
+                    }
+                    _ => panic!("Expected instruction"),
+                }
+            }
+            Err(e) => panic!("Failed to analyse program: {:#?}", e),
+        }
+    }
+
+    #[test]
+    fn test_forward_label_resolution() {
+        let program = "
+                JMP Label
+            Label:
+                NOP
+        ";
+        let ast = assemble(program, "");
+        match semantic_analysis(&ast) {
+            Ok(program) => {
+                assert_eq!(program.items.len(), 2);
+                match program.items.first() {
+                    Some(AnalysedItem::Instruction(instr)) => {
+                        assert_eq!(instr.operand, Some(0x0003));
+                    }
+                    _ => panic!("Expected instruction"),
+                }
+            }
+            Err(e) => panic!("Failed to analyse program: {:#?}", e),
+        }
+    }
+
+    #[test]
+    fn test_relative_jumps() {
+        let program = "
+                BEQ Label
+            Label:
+                NOP
+        ";
+        let ast = assemble(program, "");
+        match semantic_analysis(&ast) {
+            Ok(program) => {
+                assert_eq!(program.items.len(), 2);
+                match program.items.first() {
+                    Some(AnalysedItem::Instruction(instr)) => {
+                        assert_eq!(instr.operand, Some(0x0000));
+                    }
+                    _ => panic!("Expected instruction"),
+                }
+            }
+            Err(e) => panic!("Failed to analyse program: {:#?}", e),
+        }
+    }
+}

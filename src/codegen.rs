@@ -15,39 +15,44 @@ pub fn generate_binary(program: &AnalysedProgram, nes: bool) -> Vec<u8> {
         None => 0x0000,
     };
     for item in &program.items {
-        if item.address() > address + 1 {
+        if item.address() > address.saturating_add(1) {
             let start_addr = address;
             for _ in start_addr..item.address() {
                 bytestream.write_byte(NULL_BYTE);
-                address += 1;
+                address = address.saturating_add(1);
             }
         }
         match item {
             AnalysedItem::Instruction(instr) => {
                 bytestream.write_byte(match instr.opcode.value(instr.mode) {
                     Some(b) => b,
-                    None => panic!(),
+                    None => panic!(
+                        "No matching instruction mode '{}' for '{}'",
+                        instr.mode.as_ref(),
+                        instr.opcode.as_ref(),
+                    ),
                 });
-                address += 1;
                 if instr.opcode.is_relative() {
                     bytestream.write_signed_byte(instr.operand.unwrap());
-                    address += 1;
                 } else if let Some(operand) = instr.operand {
-                    if instr.mode.num_bytes() == 2 {
+                    if instr.mode.num_bytes() == 3 {
                         bytestream.write_little_endian_word(operand);
-                        address += 2;
                     } else {
                         bytestream.write_byte(operand as u8);
-                        address += 1;
                     }
                 }
+                address += instr.mode.num_bytes();
             }
             AnalysedItem::Word(w) => {
                 // Little-endian
                 bytestream.write_byte(w.lower_byte());
                 bytestream.write_byte(w.upper_byte());
+                address = address.saturating_add(2);
             }
-            AnalysedItem::Byte(b) => bytestream.write_byte(b.value),
+            AnalysedItem::Byte(b) => {
+                bytestream.write_byte(b.value);
+                address = address.saturating_add(1);
+            }
         }
     }
 
@@ -71,7 +76,12 @@ impl Bytestream {
 
     /// Write a signed single byte
     pub fn write_signed_byte(&mut self, value: i32) {
-        self.bytes.push(value as u8);
+        if value < 0 {
+            self.bytes
+                .push((0xff ^ u8::try_from(value.abs() & 0xff).unwrap()) + 1)
+        } else {
+            self.bytes.push((value & 0xff) as u8);
+        }
     }
 
     /// Write a little-endian word

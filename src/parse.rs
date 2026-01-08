@@ -242,8 +242,10 @@ impl<'source> Parser<'source> {
     /// Parse a string literal
     fn parse_string(&mut self) -> StringLiteral {
         let loc = self.current.span;
-        let value = self.current.text.to_string();
+        let mut value = self.current.text.to_string();
         self.expect_token(TokenKind::String);
+        // Remove string identifiers
+        value = value.trim_matches(|c| c == '"' || c == '\'').to_string();
 
         StringLiteral {
             id: next_node_id(),
@@ -268,11 +270,12 @@ impl<'source> Parser<'source> {
         };
         self.expect_token(TokenKind::Preprocessor);
         let mut args = Vec::new();
-        while args.len() < 2 {
+        while !self.lexer.at_end() {
             match self.current.kind {
                 TokenKind::Ident => args.push(DirectiveItem::Ident(self.parse_ident())),
                 TokenKind::Number => args.push(DirectiveItem::Number(self.parse_number())),
                 TokenKind::String => args.push(DirectiveItem::String(self.parse_string())),
+                TokenKind::Comma => self.advance(),
                 _ => break,
             }
         }

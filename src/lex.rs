@@ -154,7 +154,7 @@ impl<'source> Lexer<'source> {
                         self.advance();
                         TokenKind::Label
                     } else {
-                        let text = &self.source[start_pos..self.pos];
+                        let text = &self.source[start_pos..self.pos].to_ascii_uppercase();
                         KEYWORDS.get(text).copied().unwrap_or(TokenKind::Ident)
                     }
                 }
@@ -209,7 +209,7 @@ impl<'source> Lexer<'source> {
     }
 
     /// Check if source file finished
-    fn at_end(&self) -> bool {
+    pub fn at_end(&self) -> bool {
         self.pos >= self.source.len()
     }
 }

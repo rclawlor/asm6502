@@ -58,6 +58,7 @@ pub enum ProgramItem {
     Preprocessor(Preprocessor),
     Instruction(Instruction),
     Label(Label),
+    Binary(Binary),
 }
 
 #[allow(dead_code)]
@@ -82,6 +83,15 @@ pub struct Label {
     pub id: NodeId,
     pub span: Span,
     pub label: String,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub struct Binary {
+    pub id: NodeId,
+    pub span: Span,
+    pub filename: String,
+    pub bytes: Vec<u8>,
 }
 
 #[allow(dead_code)]
@@ -155,8 +165,10 @@ pub enum Directive {
     Inesmir,
     Db,
     Dw,
-    Set,
+    Incbin,
+    Pad,
     Org,
+    Set,
 }
 
 impl Directive {
@@ -167,61 +179,117 @@ impl Directive {
 
 #[derive(AsRefStr, Clone, Copy, Debug, Hash, PartialEq, Eq, EnumString, IntoStaticStr)]
 pub enum Opcode {
+    /// Add with Carry
     Adc,
+    /// And with accumulator
     And,
+    /// Arithmetic shift left
     Asl,
+    /// Branch on carry clear
     Bcc,
+    /// Branch on carry set
     Bcs,
+    /// Branch on equal
     Beq,
+    /// Test bits
     Bit,
+    /// Branch on result minus
     Bmi,
+    /// Branch on not equal
     Bne,
+    /// Branch on result plus
     Bpl,
+    /// Force break
     Brk,
+    /// Branch on overflow clear
     Bvc,
+    /// Branch on overflow set
     Bvs,
+    /// Clear carry flag
     Clc,
+    /// Clear decimal flag
     Cld,
+    /// Clear interrupt disable bit
     Cli,
+    /// Clear overflow flag
     Clv,
+    /// Compare memory with accumulator
     Cmp,
+    /// Compare memory with X
     Cpx,
+    /// Compare memory with Y
     Cpy,
+    /// Decrement accumulator
     Dec,
+    /// Decrement X
     Dex,
+    /// Decrement Y
     Dey,
+    /// XOR with accumulator
     Eor,
+    /// Increment accumulator
     Inc,
+    /// Increment X
     Inx,
+    /// Increment Y
     Iny,
+    /// Jump to address
     Jmp,
+    /// Jump to subroutine
     Jsr,
+    /// Load value to accumulator
     Lda,
+    /// Load value to X
     Ldx,
+    /// Load value to Y
     Ldy,
+    /// Logical shift right
     Lsr,
+    /// No operation
     Nop,
+    /// Or with accumulator
     Ora,
+    /// Push accumulator on stack
     Pha,
+    /// Push processor status on stack
     Php,
+    /// Pull accumulator from stack
     Pla,
+    /// Pull processor status from stack
     Plp,
+    /// Rotate left
     Rol,
+    /// Rotate right
     Ror,
+    /// Return from interrupt
     Rti,
+    /// Return from subroutine
     Rts,
+    /// Subtract with carry
     Sbc,
+    /// Set carry flag
     Sec,
+    /// Set decimal flag
     Sed,
+    /// Set interrupt disable status
     Sei,
+    /// Store accumulator
     Sta,
+    /// Store X
     Stx,
+    /// Store Y
     Sty,
+    /// Transfer A to X
     Tax,
+    /// Transfer A to Y
     Tay,
+    /// Transfer stack to X
     Tsx,
+    /// Transfer X to A
     Txa,
+    /// Transfer X to stack
     Txs,
+    /// Transfer Y to A
     Tya,
 }
 
