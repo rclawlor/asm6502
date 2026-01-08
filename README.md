@@ -4,10 +4,10 @@
 A 6502 assembler written in Rust.
 
 # Requirements
-asm6502 requires the Rust toolchain for building which can be found ![here](https://rust-lang.org/tools/install/).
+asm6502 requires the Rust toolchain for building which can be found [here](https://rust-lang.org/tools/install/).
 
 # Install
-The latest asm6502 binaries can be found ![here]() (once v0.1 has been released).
+The latest asm6502 binaries can be found [here]() (once v0.1 has been released).
 
 # Usage
 asm6502.exe [OPTIONS] --file <FILE> --output <OUTPUT>
