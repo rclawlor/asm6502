@@ -967,7 +967,6 @@ pub static INSTRUCTION_SET: phf::Map<&'static str, &'static [ModeDetails]> = phf
     "Tya" => &[ModeDetails { mode: AddressMode::Implied, opcode: 0x98 }]
 };
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -983,13 +982,13 @@ mod tests {
         match semantic_analysis(&ast) {
             Ok(program) => {
                 assert_eq!(program.items.len(), 1);
-                match program.items.get(0) {
+                match program.items.first() {
                     Some(AnalysedItem::Instruction(instr)) => {
                         assert_eq!(instr.operand, Some(0x0000));
-                    },
+                    }
                     _ => panic!("Expected instruction"),
                 }
-            },
+            }
             Err(e) => panic!("Failed to analyse program: {:#?}", e),
         }
     }
@@ -1005,13 +1004,13 @@ mod tests {
         match semantic_analysis(&ast) {
             Ok(program) => {
                 assert_eq!(program.items.len(), 2);
-                match program.items.get(0) {
+                match program.items.first() {
                     Some(AnalysedItem::Instruction(instr)) => {
                         assert_eq!(instr.operand, Some(0x0003));
-                    },
+                    }
                     _ => panic!("Expected instruction"),
                 }
-            },
+            }
             Err(e) => panic!("Failed to analyse program: {:#?}", e),
         }
     }
@@ -1027,13 +1026,13 @@ mod tests {
         match semantic_analysis(&ast) {
             Ok(program) => {
                 assert_eq!(program.items.len(), 2);
-                match program.items.get(0) {
+                match program.items.first() {
                     Some(AnalysedItem::Instruction(instr)) => {
                         assert_eq!(instr.operand, Some(0x0000));
-                    },
+                    }
                     _ => panic!("Expected instruction"),
                 }
-            },
+            }
             Err(e) => panic!("Failed to analyse program: {:#?}", e),
         }
     }
