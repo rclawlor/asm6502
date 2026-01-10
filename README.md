@@ -10,7 +10,7 @@ asm6502 requires the Rust toolchain for building which can be found [here](https
 The latest asm6502 binaries can be found [here]() (once v0.1 has been released).
 
 # Usage
-asm6502.exe [OPTIONS] --file <FILE> --output <OUTPUT>
+asm6502 [OPTIONS] --file <FILE> --output <OUTPUT>
 
 Options:
 
