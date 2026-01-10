@@ -105,16 +105,20 @@ pub struct Instruction {
 
 #[derive(Debug, Clone)]
 pub enum Operand {
-    Number(Number),
-    Ident(Ident),
+    Number(Number, Option<ByteSelect>),
+    Ident(Ident, Option<ByteSelect>),
     Register(Register),
     Immediate,
     Idx,
     LBracket,
     RBracket,
-    AddrLabel(String),
-    LowerByte,
-    UpperByte,
+    AddrLabel(String, Option<ByteSelect>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ByteSelect {
+    Low,
+    High,
 }
 
 #[derive(Debug, Clone)]

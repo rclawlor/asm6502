@@ -1,10 +1,7 @@
 use std::{collections::HashSet, str::FromStr};
 
 use crate::{
-    ast::{
-        next_node_id, Directive, DirectiveItem, Ident, Instruction, Label, Number, Opcode, Operand,
-        Preprocessor, Program, ProgramItem, Register, Span, StringLiteral,
-    },
+    ast::*,
     error::CompileError,
     lex::{Lexer, Token, TokenKind},
 };
@@ -139,6 +136,7 @@ impl<'source> Parser<'source> {
         };
         self.expect_token(TokenKind::Opcode);
         let mut operands = Vec::new();
+        let mut byte_select = None;
         loop {
             match self.current.kind {
                 TokenKind::RegisterA | TokenKind::RegisterX | TokenKind::RegisterY => {
@@ -172,15 +170,21 @@ impl<'source> Parser<'source> {
                     self.advance();
                 }
                 TokenKind::LessThan => {
-                    operands.push(Operand::LowerByte);
+                    byte_select = Some(ByteSelect::Low);
                     self.advance();
                 }
                 TokenKind::GreaterThan => {
-                    operands.push(Operand::UpperByte);
+                    byte_select = Some(ByteSelect::High);
                     self.advance();
                 }
-                TokenKind::Ident => operands.push(Operand::Ident(self.parse_ident())),
-                TokenKind::Number => operands.push(Operand::Number(self.parse_number())),
+                TokenKind::Ident => {
+                    operands.push(Operand::Ident(self.parse_ident(), byte_select));
+                    byte_select = None;
+                }
+                TokenKind::Number => {
+                    operands.push(Operand::Number(self.parse_number(), byte_select));
+                    byte_select = None;
+                }
                 _ => {
                     break;
                 }
@@ -341,14 +345,17 @@ mod tests {
 
     #[test]
     fn test_number() {
-        let program = parse("
+        let program = parse(
+            "
             LDX $10
             LDY %10
             LDA 10
             LDX #$10
             LDY #%10
             LDA #10
-        ").unwrap();
+        ",
+        )
+        .unwrap();
         assert_eq!(program.items.len(), 6);
         for (idx, item) in program.items.iter().enumerate() {
             if let ProgramItem::Instruction(instr) = item {
@@ -368,7 +375,10 @@ mod tests {
                 assert_eq!(instr.opcode, Opcode::Lda);
                 assert_eq!(instr.operands.len(), 2);
                 match &instr.operands[1] {
-                    Operand::Number(x) => assert_eq!(x.value, 0x10),
+                    Operand::Number(x, b) => {
+                        assert_eq!(x.value, 0x10);
+                        assert!(b.is_none());
+                    }
                     other => panic!("Expected number, got {:#?}", other),
                 }
             }
@@ -378,32 +388,35 @@ mod tests {
 
     #[test]
     fn test_byte_indexing() {
-        let program = parse("
-            .set EXAMPLE $1020
-            LDA <EXAMPLE
-            LDA >EXAMPLE
-        ").unwrap();
+        let program = parse(
+            "
+            Example:
+                LDA <Example
+                LDA >Example
+        ",
+        )
+        .unwrap();
         assert_eq!(program.items.len(), 3);
         match &program.items[1] {
             ProgramItem::Instruction(instr) => {
                 assert_eq!(instr.opcode, Opcode::Lda);
-                assert_eq!(instr.operands.len(), 2);
+                assert_eq!(instr.operands.len(), 1);
                 match &instr.operands[0] {
-                    Operand::LowerByte => (),
+                    Operand::Ident(_, b) => assert_eq!(*b, Some(ByteSelect::Low)),
                     other => panic!("Expected lower byte operator, got {:#?}", other),
                 }
-            },
+            }
             other => panic!("Expected instruction, got {:#?}", other),
         }
         match &program.items[2] {
             ProgramItem::Instruction(instr) => {
                 assert_eq!(instr.opcode, Opcode::Lda);
-                assert_eq!(instr.operands.len(), 2);
+                assert_eq!(instr.operands.len(), 1);
                 match &instr.operands[0] {
-                    Operand::UpperByte => (),
+                    Operand::Ident(_, b) => assert_eq!(*b, Some(ByteSelect::High)),
                     other => panic!("Expected lower byte operator, got {:#?}", other),
                 }
-            },
+            }
             other => panic!("Expected instruction, got {:#?}", other),
         }
     }

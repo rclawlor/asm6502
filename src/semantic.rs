@@ -120,11 +120,11 @@ impl SymbolResolver {
         let mut new_instr = instr.clone();
         new_instr.operands.clear();
         for item in &instr.operands {
-            if let Operand::Ident(ident) = item {
+            if let Operand::Ident(ident, b) = item {
                 if let Some(v) = self.symbol_table.get(&ident.value) {
                     match v {
                         DirectiveItem::Number(n) => {
-                            new_instr.operands.push(Operand::Number(n.clone()));
+                            new_instr.operands.push(Operand::Number(n.clone(), None));
                         }
                         DirectiveItem::String(s) => {
                             self.error(
@@ -144,7 +144,7 @@ impl SymbolResolver {
                 } else if self.ast.labels.contains(&ident.value) {
                     new_instr
                         .operands
-                        .push(Operand::AddrLabel(ident.value.clone()));
+                        .push(Operand::AddrLabel(ident.value.clone(), *b));
                 } else {
                     self.error(
                         format!("Could not find definition for '{}'", ident.value),
@@ -256,6 +256,18 @@ impl std::fmt::Display for AnalysedInstruction {
     }
 }
 
+#[derive(Debug, Clone)]
+struct UnknownLabel {
+    idx: usize,
+    byte_select: Option<ByteSelect>,
+}
+
+impl UnknownLabel {
+    fn new(idx: usize, byte_select: Option<ByteSelect>) -> UnknownLabel {
+        UnknownLabel { idx, byte_select }
+    }
+}
+
 struct SemanticAnalyser {
     ast: Program,
     /// Current address
@@ -265,7 +277,7 @@ struct SemanticAnalyser {
     /// Labels and corresponding addresses
     labels: HashMap<String, i32>,
     /// Labels not yet found
-    unknown_labels: HashMap<String, Vec<usize>>,
+    unknown_labels: HashMap<String, Vec<UnknownLabel>>,
     errors: Vec<CompileError>,
 }
 
@@ -375,7 +387,7 @@ impl SemanticAnalyser {
                         self.unknown_labels
                             .entry(i.value.clone())
                             .or_default()
-                            .push(self.items.len());
+                            .push(UnknownLabel::new(self.items.len(), None));
                         UNKNOWN_ADDR
                     }
                 } else {
@@ -458,15 +470,21 @@ impl SemanticAnalyser {
                 }
             }
             // Absolute or zero-page
-            [Operand::Number(n)] => {
+            [Operand::Number(n, b)] => {
                 if n.value > 0xFF {
-                    (AddressMode::Absolute, Some(n.value))
+                    match b {
+                        Some(ByteSelect::High) => {
+                            (AddressMode::ZeroPage, Some((n.value & 0xFF00) >> 8))
+                        }
+                        Some(ByteSelect::Low) => (AddressMode::ZeroPage, Some(n.value & 0x00FF)),
+                        None => (AddressMode::Absolute, Some(n.value)),
+                    }
                 } else {
                     (AddressMode::ZeroPage, Some(n.value))
                 }
             }
             // Absolute or relative
-            [Operand::AddrLabel(s)] => {
+            [Operand::AddrLabel(s, b)] if b.is_none() => {
                 let m = if instr.opcode.is_relative() {
                     AddressMode::Relative
                 } else {
@@ -493,7 +511,7 @@ impl SemanticAnalyser {
                         self.unknown_labels
                             .entry(s.clone())
                             .or_default()
-                            .push(self.items.len());
+                            .push(UnknownLabel::new(self.items.len(), *b));
                         (m, Some(UNKNOWN_ADDR))
                     }
                 } else {
@@ -502,7 +520,7 @@ impl SemanticAnalyser {
                 }
             }
             // Absolute, X-indexed with label
-            [Operand::AddrLabel(s), Operand::Idx, Operand::Register(Register::X)] => {
+            [Operand::AddrLabel(s, b), Operand::Idx, Operand::Register(Register::X)] => {
                 if self.ast.labels.contains(s) {
                     if let Some(addr) = self.labels.get(s) {
                         (AddressMode::AbsoluteXIdx, Some(*addr))
@@ -510,7 +528,7 @@ impl SemanticAnalyser {
                         self.unknown_labels
                             .entry(s.clone())
                             .or_default()
-                            .push(self.items.len());
+                            .push(UnknownLabel::new(self.items.len(), *b));
                         (AddressMode::AbsoluteXIdx, Some(UNKNOWN_ADDR))
                     }
                 } else {
@@ -519,7 +537,7 @@ impl SemanticAnalyser {
                 }
             }
             // Absolute, Y-indexed with label
-            [Operand::AddrLabel(s), Operand::Idx, Operand::Register(Register::Y)] => {
+            [Operand::AddrLabel(s, b), Operand::Idx, Operand::Register(Register::Y)] => {
                 if self.ast.labels.contains(s) {
                     if let Some(addr) = self.labels.get(s) {
                         (AddressMode::AbsoluteYIdx, Some(*addr))
@@ -527,7 +545,7 @@ impl SemanticAnalyser {
                         self.unknown_labels
                             .entry(s.clone())
                             .or_default()
-                            .push(self.items.len());
+                            .push(UnknownLabel::new(self.items.len(), *b));
                         (AddressMode::AbsoluteYIdx, Some(UNKNOWN_ADDR))
                     }
                 } else {
@@ -536,65 +554,132 @@ impl SemanticAnalyser {
                 }
             }
             // Immediate
-            [Operand::Immediate, Operand::Number(n)] => {
+            [Operand::Immediate, Operand::Number(n, b)] => {
                 if n.value > 0xFF {
-                    self.error(
-                        format!(
-                            "Immediate mode argument cannot exceed 1 byte, got '{}'",
-                            n.value
-                        ),
-                        n.span,
-                        None,
-                    );
+                    match &b {
+                        Some(ByteSelect::Low) => (AddressMode::Immediate, Some(n.value & 0x00FF)),
+                        Some(ByteSelect::High) => {
+                            (AddressMode::Immediate, Some((n.value & 0xFF00) >> 8))
+                        }
+                        None => {
+                            self.error(
+                                format!(
+                                    "Immediate mode argument cannot exceed 1 byte, got '{}'",
+                                    n.value
+                                ),
+                                n.span,
+                                None,
+                            );
+                            (AddressMode::Immediate, Some(n.value & 0x00FF))
+                        }
+                    }
+                } else {
+                    (AddressMode::Immediate, Some(n.value))
                 }
-                (AddressMode::Immediate, Some(n.value))
+            }
+            // Immediate
+            [Operand::AddrLabel(s, b)] if b.is_some() => {
+                if self.ast.labels.contains(s) {
+                    if let Some(addr) = self.labels.get(s) {
+                        match b {
+                            Some(ByteSelect::Low) => (AddressMode::Immediate, Some(addr & 0x00FF)),
+                            Some(ByteSelect::High) => {
+                                (AddressMode::Immediate, Some((addr & 0xFF00) >> 8))
+                            }
+                            None => (AddressMode::Immediate, Some(*addr)),
+                        }
+                    } else {
+                        self.unknown_labels
+                            .entry(s.clone())
+                            .or_default()
+                            .push(UnknownLabel::new(self.items.len(), *b));
+                        (AddressMode::Immediate, Some(UNKNOWN_ADDR))
+                    }
+                } else {
+                    self.error(format!("Label '{s}' not found"), instr.span, None);
+                    (AddressMode::Immediate, Some(0x0000))
+                }
             }
             // Indirect
-            [Operand::LBracket, Operand::Number(n), Operand::RBracket] => {
+            [Operand::LBracket, Operand::Number(n, None), Operand::RBracket] => {
                 (AddressMode::Indirect, Some(n.value))
             }
             // X-indexed, indirect
-            [Operand::LBracket, Operand::Number(n), Operand::Idx, Operand::Register(Register::X), Operand::RBracket] =>
-            {
+            [Operand::LBracket, Operand::Number(n, b), Operand::Idx, Operand::Register(Register::X), Operand::RBracket] => {
                 if n.value > 0xFF {
-                    self.error(
-                        format!(
-                            "X-indexed, indirect mode argument cannot exceed 1 byte, got '{}'",
-                            n.value
-                        ),
-                        n.span,
-                        None,
-                    );
+                    match &b {
+                        Some(ByteSelect::Low) => (AddressMode::Immediate, Some(n.value & 0x00FF)),
+                        Some(ByteSelect::High) => {
+                            (AddressMode::Immediate, Some((n.value & 0xFF00) >> 8))
+                        }
+                        None => {
+                            self.error(
+                                format!(
+                                    "X-indexed, indirect mode argument cannot exceed 1 byte, got '{}'",
+                                    n.value
+                                ),
+                                n.span,
+                                None,
+                            );
+                            (AddressMode::IndirectXIdx, Some(n.value))
+                        }
+                    }
+                } else {
+                    (AddressMode::IndirectXIdx, Some(n.value))
                 }
-                (AddressMode::IndirectXIdx, Some(n.value))
             }
             // Y-indexed, indirect
-            [Operand::LBracket, Operand::Number(n), Operand::RBracket, Operand::Idx, Operand::Register(Register::Y)] =>
-            {
+            [Operand::LBracket, Operand::Number(n, b), Operand::RBracket, Operand::Idx, Operand::Register(Register::Y)] => {
                 if n.value > 0xFF {
-                    self.error(
-                        format!(
-                            "Y-indexed, indirect mode argument cannot exceed 1 byte, got '{}'",
-                            n.value
-                        ),
-                        n.span,
-                        None,
-                    );
+                    match &b {
+                        Some(ByteSelect::Low) => (AddressMode::Immediate, Some(n.value & 0x00FF)),
+                        Some(ByteSelect::High) => {
+                            (AddressMode::Immediate, Some((n.value & 0xFF00) >> 8))
+                        }
+                        None => {
+                            self.error(
+                                format!(
+                                    "Y-indexed, indirect mode argument cannot exceed 1 byte, got '{}'",
+                                    n.value
+                                ),
+                                n.span,
+                                None,
+                            );
+                            (AddressMode::IndirectYIdx, Some(n.value))
+                        }
+                    }
+                } else {
+                    (AddressMode::IndirectYIdx, Some(n.value))
                 }
-                (AddressMode::IndirectYIdx, Some(n.value))
             }
             // Zeropage, X-indexed or Absolute, X-indexed
-            [Operand::Number(n), Operand::Idx, Operand::Register(Register::X)] => {
+            [Operand::Number(n, b), Operand::Idx, Operand::Register(Register::X)] => {
                 if n.value > 0xFF {
-                    (AddressMode::AbsoluteXIdx, Some(n.value))
+                    match &b {
+                        Some(ByteSelect::Low) => {
+                            (AddressMode::ZeroPageXIdx, Some(n.value & 0x00FF))
+                        }
+                        Some(ByteSelect::High) => {
+                            (AddressMode::ZeroPageXIdx, Some((n.value & 0xFF00) >> 8))
+                        }
+                        None => (AddressMode::AbsoluteXIdx, Some(n.value)),
+                    }
                 } else {
                     (AddressMode::ZeroPageXIdx, Some(n.value))
                 }
             }
             // Zeropage, Y-indexed or Absolute, Y-indexed
-            [Operand::Number(n), Operand::Idx, Operand::Register(Register::Y)] => {
+            [Operand::Number(n, b), Operand::Idx, Operand::Register(Register::Y)] => {
                 if n.value > 0xFF {
-                    (AddressMode::AbsoluteYIdx, Some(n.value))
+                    match &b {
+                        Some(ByteSelect::Low) => {
+                            (AddressMode::ZeroPageYIdx, Some(n.value & 0x00FF))
+                        }
+                        Some(ByteSelect::High) => {
+                            (AddressMode::ZeroPageYIdx, Some((n.value & 0xFF00) >> 8))
+                        }
+                        None => (AddressMode::AbsoluteYIdx, Some(n.value)),
+                    }
                 } else {
                     (AddressMode::ZeroPageYIdx, Some(n.value))
                 }
@@ -639,12 +724,18 @@ impl SemanticAnalyser {
         let unmapped_items = self.unknown_labels.remove(&label.label);
         if let Some(items) = unmapped_items {
             for item in items {
-                match &mut self.items[item] {
+                println!("Resolving {}", label.label);
+                match &mut self.items[item.idx] {
                     AnalysedItem::Instruction(instr) => match instr.mode {
                         AddressMode::Absolute
                         | AddressMode::AbsoluteXIdx
                         | AddressMode::AbsoluteYIdx => {
-                            instr.operand = Some(self.address.into());
+                            let address = i32::from(self.address);
+                            instr.operand = match item.byte_select {
+                                Some(ByteSelect::Low) => Some(address & 0x00FF),
+                                Some(ByteSelect::High) => Some((address & 0xFF00) >> 8),
+                                None => Some(address),
+                            };
                         }
                         AddressMode::Relative => {
                             let diff = i32::from(self.address) - i32::from(instr.address + 2);
@@ -1034,6 +1125,39 @@ mod tests {
                 }
             }
             Err(e) => panic!("Failed to analyse program: {:#?}", e),
+        }
+    }
+
+    #[test]
+    fn test_byte_index() {
+        let program = "
+            .org $C000
+
+            Label:
+                LDA <Label
+                LDX >Label
+        ";
+        let ast = assemble(program, "");
+        match semantic_analysis(&ast) {
+            Ok(program) => {
+                println!("{:#?}", program);
+                assert_eq!(program.items.len(), 2);
+                match program.items.first() {
+                    Some(AnalysedItem::Instruction(instr)) => {
+                        assert_eq!(instr.address, 0xC000);
+                        assert_eq!(instr.operand, Some(0x00));
+                    }
+                    _ => panic!("Expected instruction"),
+                }
+                match program.items.get(1) {
+                    Some(AnalysedItem::Instruction(instr)) => {
+                        assert_eq!(instr.address, 0xC002);
+                        assert_eq!(instr.operand, Some(0xC0));
+                    }
+                    _ => panic!("Expected instruction"),
+                }
+            }
+            Err(e) => panic!("Failed to analyse progam: {:#?}", e),
         }
     }
 }
