@@ -113,6 +113,8 @@ pub enum Operand {
     LBracket,
     RBracket,
     AddrLabel(String),
+    LowerByte,
+    UpperByte,
 }
 
 #[derive(Debug, Clone)]
