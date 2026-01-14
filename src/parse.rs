@@ -390,30 +390,46 @@ mod tests {
     fn test_byte_indexing() {
         let program = parse(
             "
+            .set var $0102
+
             Example:
                 LDA <Example
-                LDA >Example
+                LDX >Example
+                LDY <var
         ",
         )
         .unwrap();
-        assert_eq!(program.items.len(), 3);
-        match &program.items[1] {
-            ProgramItem::Instruction(instr) => {
-                assert_eq!(instr.opcode, Opcode::Lda);
-                assert_eq!(instr.operands.len(), 1);
-                match &instr.operands[0] {
-                    Operand::Ident(_, b) => assert_eq!(*b, Some(ByteSelect::Low)),
-                    other => panic!("Expected lower byte operator, got {:#?}", other),
-                }
-            }
-            other => panic!("Expected instruction, got {:#?}", other),
-        }
+        assert_eq!(program.items.len(), 5);
         match &program.items[2] {
             ProgramItem::Instruction(instr) => {
                 assert_eq!(instr.opcode, Opcode::Lda);
                 assert_eq!(instr.operands.len(), 1);
                 match &instr.operands[0] {
+                    Operand::Ident(_, b) => {
+                        assert_eq!(*b, Some(ByteSelect::Low));
+                    }
+                    other => panic!("Expected lower byte operator, got {:#?}", other),
+                }
+            }
+            other => panic!("Expected instruction, got {:#?}", other),
+        }
+        match &program.items[3] {
+            ProgramItem::Instruction(instr) => {
+                assert_eq!(instr.opcode, Opcode::Ldx);
+                assert_eq!(instr.operands.len(), 1);
+                match &instr.operands[0] {
                     Operand::Ident(_, b) => assert_eq!(*b, Some(ByteSelect::High)),
+                    other => panic!("Expected upper byte operator, got {:#?}", other),
+                }
+            }
+            other => panic!("Expected instruction, got {:#?}", other),
+        }
+        match &program.items[4] {
+            ProgramItem::Instruction(instr) => {
+                assert_eq!(instr.opcode, Opcode::Ldy);
+                assert_eq!(instr.operands.len(), 1);
+                match &instr.operands[0] {
+                    Operand::Ident(_, b) => assert_eq!(*b, Some(ByteSelect::Low)),
                     other => panic!("Expected lower byte operator, got {:#?}", other),
                 }
             }

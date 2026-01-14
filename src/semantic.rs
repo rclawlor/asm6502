@@ -97,8 +97,7 @@ impl SymbolResolver {
         let (filename, span, bytes) = if let Some(DirectiveItem::String(s)) = pp.args.first() {
             let b = match std::fs::read(&s.value) {
                 Ok(b) => b,
-                Err(e) => {
-                    println!("{e}");
+                Err(_) => {
                     self.error(format!("Unable to read file '{}'", s.value), s.span, None);
                     Vec::new()
                 }
@@ -124,7 +123,7 @@ impl SymbolResolver {
                 if let Some(v) = self.symbol_table.get(&ident.value) {
                     match v {
                         DirectiveItem::Number(n) => {
-                            new_instr.operands.push(Operand::Number(n.clone(), None));
+                            new_instr.operands.push(Operand::Number(n.clone(), *b));
                         }
                         DirectiveItem::String(s) => {
                             self.error(
@@ -684,8 +683,7 @@ impl SemanticAnalyser {
                     (AddressMode::ZeroPageYIdx, Some(n.value))
                 }
             }
-            other => {
-                println!("{:#?}", other);
+            _ => {
                 self.error(
                     String::from("Invalid addressing mode"),
                     instr.span,
@@ -724,7 +722,6 @@ impl SemanticAnalyser {
         let unmapped_items = self.unknown_labels.remove(&label.label);
         if let Some(items) = unmapped_items {
             for item in items {
-                println!("Resolving {}", label.label);
                 match &mut self.items[item.idx] {
                     AnalysedItem::Instruction(instr) => match instr.mode {
                         AddressMode::Absolute
@@ -1132,16 +1129,18 @@ mod tests {
     fn test_byte_index() {
         let program = "
             .org $C000
+            .set var $0102
 
             Label:
                 LDA <Label
                 LDX >Label
+                LDY <var
+                LDA >var
         ";
         let ast = assemble(program, "");
         match semantic_analysis(&ast) {
             Ok(program) => {
-                println!("{:#?}", program);
-                assert_eq!(program.items.len(), 2);
+                assert_eq!(program.items.len(), 4);
                 match program.items.first() {
                     Some(AnalysedItem::Instruction(instr)) => {
                         assert_eq!(instr.address, 0xC000);
@@ -1153,6 +1152,20 @@ mod tests {
                     Some(AnalysedItem::Instruction(instr)) => {
                         assert_eq!(instr.address, 0xC002);
                         assert_eq!(instr.operand, Some(0xC0));
+                    }
+                    _ => panic!("Expected instruction"),
+                }
+                match program.items.get(2) {
+                    Some(AnalysedItem::Instruction(instr)) => {
+                        assert_eq!(instr.address, 0xC004);
+                        assert_eq!(instr.operand, Some(0x02));
+                    }
+                    _ => panic!("Expected instruction"),
+                }
+                match program.items.get(3) {
+                    Some(AnalysedItem::Instruction(instr)) => {
+                        assert_eq!(instr.address, 0xC006);
+                        assert_eq!(instr.operand, Some(0x01));
                     }
                     _ => panic!("Expected instruction"),
                 }
