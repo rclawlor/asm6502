@@ -232,6 +232,7 @@ pub struct AnalysedInstruction {
     pub opcode: Opcode,
     pub mode: AddressMode,
     pub operand: Option<i32>,
+    pub span: Span,
 }
 
 impl std::fmt::Display for AnalysedInstruction {
@@ -710,6 +711,7 @@ impl SemanticAnalyser {
             opcode: instr.opcode,
             mode,
             operand,
+            span: instr.span,
         };
         self.address = self.address.wrapping_add(mode.num_bytes());
 
@@ -740,21 +742,41 @@ impl SemanticAnalyser {
                                 instr.operand = Some(diff);
                             } else {
                                 instr.operand = Some(0x00);
+                                let span = instr.span;
                                 self.error(
                                     format!("Jump out of range (-128, +127): {diff:+}"),
-                                    label.span,
+                                    span,
                                     None,
                                 );
                             }
                         }
-                        other => self.error(
-                            format!(
-                                "Invalid addressing mode '{:#?}' for label reference '{}'",
-                                other, label.label
-                            ),
-                            label.span,
-                            None,
-                        ),
+                        AddressMode::Immediate => match item.byte_select {
+                            Some(ByteSelect::Low) => {
+                                instr.operand = Some(i32::from(self.address & 0x00FF))
+                            }
+                            Some(ByteSelect::High) => {
+                                instr.operand = Some(i32::from((self.address & 0xFF00) >> 8))
+                            }
+                            None => {
+                                let span = instr.span;
+                                self.error(
+                                        format!("Address '{}' exceeds 1 byte argument size for immediate addressing", label.label),
+                                        span,
+                                        None
+                                    )
+                            }
+                        },
+                        other => {
+                            let span = instr.span;
+                            self.error(
+                                format!(
+                                    "Invalid addressing mode '{:#?}' for label reference '{}'",
+                                    other, label.label
+                                ),
+                                span,
+                                None,
+                            )
+                        }
                     },
                     AnalysedItem::Word(word) => {
                         word.value = self.address;
