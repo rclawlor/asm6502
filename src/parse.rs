@@ -436,4 +436,30 @@ mod tests {
             other => panic!("Expected instruction, got {:#?}", other),
         }
     }
+
+    #[test]
+    fn test_db_dw_preprocessor() {
+        let program = parse(
+            "
+            .db $01, $02
+            .dw $01, $0200
+        ",
+        )
+        .unwrap();
+        assert_eq!(program.items.len(), 2);
+        match program.items.first() {
+            Some(ProgramItem::Preprocessor(pp)) => {
+                assert_eq!(pp.directive, Directive::Db);
+                assert_eq!(pp.args.len(), 2);
+            }
+            _ => panic!("Expected .db preprocessor"),
+        }
+        match program.items.get(1) {
+            Some(ProgramItem::Preprocessor(pp)) => {
+                assert_eq!(pp.directive, Directive::Dw);
+                assert_eq!(pp.args.len(), 2);
+            }
+            _ => panic!("Expected .dw preprocessor"),
+        }
+    }
 }

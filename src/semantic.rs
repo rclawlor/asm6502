@@ -317,12 +317,16 @@ impl SemanticAnalyser {
                         _ => self.error(String::from("Incorrect/missing argument"), pp.span, None),
                     },
                     Directive::Db => {
-                        let w = self.analyse_byte(&pp);
-                        self.items.push(AnalysedItem::Byte(w));
+                        let b = self.analyse_byte(&pp);
+                        for byte in b {
+                            self.items.push(AnalysedItem::Byte(byte));
+                        }
                     }
                     Directive::Dw => {
                         let w = self.analyse_word(&pp);
-                        self.items.push(AnalysedItem::Word(w));
+                        for word in w {
+                            self.items.push(AnalysedItem::Word(word));
+                        }
                     }
                     Directive::Pad => {
                         self.analyse_pad(&pp);
@@ -376,67 +380,81 @@ impl SemanticAnalyser {
         });
     }
 
-    fn analyse_word(&mut self, pp: &Preprocessor) -> AnalysedWord {
-        let value = match pp.args.first() {
-            Some(DirectiveItem::Number(n)) => n.value,
-            Some(DirectiveItem::Ident(i)) => {
-                if self.ast.labels.contains(&i.value) {
-                    if let Some(addr) = self.labels.get(&i.value) {
-                        *addr
+    fn analyse_word(&mut self, pp: &Preprocessor) -> Vec<AnalysedWord> {
+        let values = pp
+            .args
+            .iter()
+            .map(|x| match x {
+                DirectiveItem::Number(n) => n.value,
+                DirectiveItem::Ident(i) => {
+                    if self.ast.labels.contains(&i.value) {
+                        if let Some(addr) = self.labels.get(&i.value) {
+                            *addr
+                        } else {
+                            self.unknown_labels
+                                .entry(i.value.clone())
+                                .or_default()
+                                .push(UnknownLabel::new(self.items.len(), None));
+                            UNKNOWN_ADDR
+                        }
                     } else {
-                        self.unknown_labels
-                            .entry(i.value.clone())
-                            .or_default()
-                            .push(UnknownLabel::new(self.items.len(), None));
+                        self.error(format!("Label '{}' not found", i.value), i.span, None);
                         UNKNOWN_ADDR
                     }
-                } else {
-                    self.error(format!("Label '{}' not found", i.value), i.span, None);
+                }
+                _ => {
+                    self.error(
+                        String::from("Expected number or label for .dw"),
+                        pp.span,
+                        None,
+                    );
                     UNKNOWN_ADDR
                 }
-            }
-            _ => {
-                self.error(
-                    String::from("Expected number or label for .dw"),
-                    pp.span,
-                    None,
-                );
-                UNKNOWN_ADDR
-            }
-        };
-        let word = AnalysedWord {
-            address: self.address,
-            value: value as u16,
-        };
-        self.address = self.address.wrapping_add(2);
-        word
+            })
+            .collect::<Vec<i32>>();
+        let mut words = Vec::new();
+        for value in values {
+            words.push(AnalysedWord {
+                address: self.address,
+                value: value as u16,
+            });
+            self.address = self.address.wrapping_add(2);
+        }
+        words
     }
 
-    fn analyse_byte(&mut self, pp: &Preprocessor) -> AnalysedByte {
-        let value = match pp.args.first() {
-            Some(DirectiveItem::Number(n)) => n.value,
-            Some(DirectiveItem::Ident(i)) => {
-                self.error(
-                    format!(
-                        "2 byte address for label '{}' exceeds .db 1 byte range",
-                        i.value
-                    ),
-                    i.span,
-                    None,
-                );
-                0x00
-            }
-            _ => {
-                self.error(String::from("Expected number for .dw"), pp.span, None);
-                UNKNOWN_ADDR
-            }
-        };
-        let byte = AnalysedByte {
-            address: self.address,
-            value: value as u8,
-        };
-        self.address = self.address.wrapping_add(1);
-        byte
+    fn analyse_byte(&mut self, pp: &Preprocessor) -> Vec<AnalysedByte> {
+        let values = pp
+            .args
+            .iter()
+            .map(|x| match x {
+                DirectiveItem::Number(n) => n.value,
+                DirectiveItem::Ident(i) => {
+                    self.error(
+                        format!(
+                            "2 byte address for label '{}' exceeds .db 1 byte range",
+                            i.value
+                        ),
+                        i.span,
+                        None,
+                    );
+                    0x00
+                }
+                _ => {
+                    self.error(String::from("Expected number for .dw"), pp.span, None);
+                    UNKNOWN_ADDR
+                }
+            })
+            .collect::<Vec<i32>>();
+        let mut bytes = Vec::new();
+        for value in values {
+            bytes.push(AnalysedByte {
+                address: self.address,
+                value: value as u8,
+            });
+            self.address = self.address.wrapping_add(1);
+        }
+        bytes
     }
 
     fn analyse_pad(&mut self, pp: &Preprocessor) {
@@ -1190,6 +1208,33 @@ mod tests {
                         assert_eq!(instr.operand, Some(0x01));
                     }
                     _ => panic!("Expected instruction"),
+                }
+            }
+            Err(e) => panic!("Failed to analyse progam: {:#?}", e),
+        }
+    }
+
+    #[test]
+    fn test_db_dw_preprocessor() {
+        let program = "
+            .db $01, $02
+            .dw $01, $0200
+        ";
+        let ast = assemble(program, "");
+        match semantic_analysis(&ast) {
+            Ok(program) => {
+                assert_eq!(program.items.len(), 4);
+                match program.items.first() {
+                    Some(AnalysedItem::Byte(b)) => {
+                        assert_eq!(b.value, 0x01);
+                    }
+                    _ => panic!("Expected byte"),
+                }
+                match program.items.get(2) {
+                    Some(AnalysedItem::Word(w)) => {
+                        assert_eq!(w.value, 0x01);
+                    }
+                    _ => panic!("Expected word"),
                 }
             }
             Err(e) => panic!("Failed to analyse progam: {:#?}", e),
