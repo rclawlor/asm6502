@@ -29,8 +29,10 @@ pub enum TokenKind {
     Label,  // XID_Start XID_Continue*:
 
     // Special tokens
-    Hash,  // "#"
-    Colon, // ":"
+    Hash,        // "#"
+    Colon,       // ":"
+    LessThan,    // "<"
+    GreaterThan, // ">"
 
     // Other
     InvalidToken,
@@ -92,6 +94,8 @@ impl<'source> Lexer<'source> {
                 ')' => TokenKind::RightBracket,
                 ':' => TokenKind::Colon,
                 '#' => TokenKind::Hash,
+                '<' => TokenKind::LessThan,
+                '>' => TokenKind::GreaterThan,
 
                 // Comment
                 ';' => {
@@ -273,14 +277,16 @@ mod tests {
 
     #[test]
     fn test_single_char_tokens() {
-        let tokens = lex(":(),#");
-        assert_eq!(tokens.len(), 5 + 1);
+        let tokens = lex(":(),#<>");
+        assert_eq!(tokens.len(), 7 + 1);
         assert_eq!(tokens[0].kind, TokenKind::Colon);
         assert_eq!(tokens[1].kind, TokenKind::LeftBracket);
         assert_eq!(tokens[2].kind, TokenKind::RightBracket);
         assert_eq!(tokens[3].kind, TokenKind::Comma);
         assert_eq!(tokens[4].kind, TokenKind::Hash);
-        assert_eq!(tokens[5].kind, TokenKind::Eof);
+        assert_eq!(tokens[5].kind, TokenKind::LessThan);
+        assert_eq!(tokens[6].kind, TokenKind::GreaterThan);
+        assert_eq!(tokens[7].kind, TokenKind::Eof);
     }
 
     #[test]

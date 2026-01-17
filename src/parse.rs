@@ -1,10 +1,7 @@
 use std::{collections::HashSet, str::FromStr};
 
 use crate::{
-    ast::{
-        next_node_id, Directive, DirectiveItem, Ident, Instruction, Label, Number, Opcode, Operand,
-        Preprocessor, Program, ProgramItem, Register, Span, StringLiteral,
-    },
+    ast::*,
     error::CompileError,
     lex::{Lexer, Token, TokenKind},
 };
@@ -139,6 +136,7 @@ impl<'source> Parser<'source> {
         };
         self.expect_token(TokenKind::Opcode);
         let mut operands = Vec::new();
+        let mut byte_select = None;
         loop {
             match self.current.kind {
                 TokenKind::RegisterA | TokenKind::RegisterX | TokenKind::RegisterY => {
@@ -171,8 +169,22 @@ impl<'source> Parser<'source> {
                     operands.push(Operand::RBracket);
                     self.advance();
                 }
-                TokenKind::Ident => operands.push(Operand::Ident(self.parse_ident())),
-                TokenKind::Number => operands.push(Operand::Number(self.parse_number())),
+                TokenKind::LessThan => {
+                    byte_select = Some(ByteSelect::Low);
+                    self.advance();
+                }
+                TokenKind::GreaterThan => {
+                    byte_select = Some(ByteSelect::High);
+                    self.advance();
+                }
+                TokenKind::Ident => {
+                    operands.push(Operand::Ident(self.parse_ident(), byte_select));
+                    byte_select = None;
+                }
+                TokenKind::Number => {
+                    operands.push(Operand::Number(self.parse_number(), byte_select));
+                    byte_select = None;
+                }
                 _ => {
                     break;
                 }
@@ -332,6 +344,29 @@ mod tests {
     }
 
     #[test]
+    fn test_number() {
+        let program = parse(
+            "
+            LDX $10
+            LDY %10
+            LDA 10
+            LDX #$10
+            LDY #%10
+            LDA #10
+        ",
+        )
+        .unwrap();
+        assert_eq!(program.items.len(), 6);
+        for (idx, item) in program.items.iter().enumerate() {
+            if let ProgramItem::Instruction(instr) = item {
+                assert_eq!(instr.operands.len(), 1 + usize::from(idx > 2));
+            } else {
+                panic!("Expected instruction");
+            }
+        }
+    }
+
+    #[test]
     fn test_instruction() {
         let program = parse("LDA #$10").unwrap();
         assert_eq!(program.items.len(), 1);
@@ -340,11 +375,91 @@ mod tests {
                 assert_eq!(instr.opcode, Opcode::Lda);
                 assert_eq!(instr.operands.len(), 2);
                 match &instr.operands[1] {
-                    Operand::Number(x) => assert_eq!(x.value, 0x10),
+                    Operand::Number(x, b) => {
+                        assert_eq!(x.value, 0x10);
+                        assert!(b.is_none());
+                    }
                     other => panic!("Expected number, got {:#?}", other),
                 }
             }
             other => panic!("Expected instruction, got {:#?}", other),
+        }
+    }
+
+    #[test]
+    fn test_byte_indexing() {
+        let program = parse(
+            "
+            .set var $0102
+
+            Example:
+                LDA <Example
+                LDX >Example
+                LDY <var
+        ",
+        )
+        .unwrap();
+        assert_eq!(program.items.len(), 5);
+        match &program.items[2] {
+            ProgramItem::Instruction(instr) => {
+                assert_eq!(instr.opcode, Opcode::Lda);
+                assert_eq!(instr.operands.len(), 1);
+                match &instr.operands[0] {
+                    Operand::Ident(_, b) => {
+                        assert_eq!(*b, Some(ByteSelect::Low));
+                    }
+                    other => panic!("Expected lower byte operator, got {:#?}", other),
+                }
+            }
+            other => panic!("Expected instruction, got {:#?}", other),
+        }
+        match &program.items[3] {
+            ProgramItem::Instruction(instr) => {
+                assert_eq!(instr.opcode, Opcode::Ldx);
+                assert_eq!(instr.operands.len(), 1);
+                match &instr.operands[0] {
+                    Operand::Ident(_, b) => assert_eq!(*b, Some(ByteSelect::High)),
+                    other => panic!("Expected upper byte operator, got {:#?}", other),
+                }
+            }
+            other => panic!("Expected instruction, got {:#?}", other),
+        }
+        match &program.items[4] {
+            ProgramItem::Instruction(instr) => {
+                assert_eq!(instr.opcode, Opcode::Ldy);
+                assert_eq!(instr.operands.len(), 1);
+                match &instr.operands[0] {
+                    Operand::Ident(_, b) => assert_eq!(*b, Some(ByteSelect::Low)),
+                    other => panic!("Expected lower byte operator, got {:#?}", other),
+                }
+            }
+            other => panic!("Expected instruction, got {:#?}", other),
+        }
+    }
+
+    #[test]
+    fn test_db_dw_preprocessor() {
+        let program = parse(
+            "
+            .db $01, $02
+            .dw $01, $0200
+        ",
+        )
+        .unwrap();
+        assert_eq!(program.items.len(), 2);
+        match program.items.first() {
+            Some(ProgramItem::Preprocessor(pp)) => {
+                assert_eq!(pp.directive, Directive::Db);
+                assert_eq!(pp.args.len(), 2);
+            }
+            _ => panic!("Expected .db preprocessor"),
+        }
+        match program.items.get(1) {
+            Some(ProgramItem::Preprocessor(pp)) => {
+                assert_eq!(pp.directive, Directive::Dw);
+                assert_eq!(pp.args.len(), 2);
+            }
+            _ => panic!("Expected .dw preprocessor"),
         }
     }
 }
