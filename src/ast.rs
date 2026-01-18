@@ -1,3 +1,5 @@
+//! Contains the AST node types generated during parsing
+
 use std::{collections::HashSet, str::FromStr, sync::atomic::AtomicUsize};
 
 use strum::{AsRefStr, EnumString, IntoStaticStr};
@@ -12,6 +14,7 @@ use crate::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NodeId(usize);
 
+/// Used to track what AST node IDs have been used
 static NEXT_NODE_ID: AtomicUsize = AtomicUsize::new(0);
 
 /// Get next available AST node ID
@@ -26,6 +29,7 @@ pub struct Span {
     pub end: usize,
 }
 
+/// Data required to generate an iNES header for emulators
 #[derive(Debug, Clone)]
 pub struct INesHeader {
     pub prg_size_16kb: u8,
@@ -184,6 +188,7 @@ impl Directive {
     }
 }
 
+/// All opcodes in the 6502 (excludes illegal opcodes)
 #[derive(AsRefStr, Clone, Copy, Debug, Hash, PartialEq, Eq, EnumString, IntoStaticStr)]
 pub enum Opcode {
     /// Add with Carry

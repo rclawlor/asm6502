@@ -1,3 +1,5 @@
+//! Generates binary for 6502 target
+
 use crate::{
     ast::INesHeader,
     semantic::{AnalysedItem, AnalysedProgram},
@@ -5,6 +7,7 @@ use crate::{
 
 const NULL_BYTE: u8 = 0x00;
 
+/// Generates the binary output with an optional iNES header if `nes` is `true`
 pub fn generate_binary(program: &AnalysedProgram, nes: bool) -> Vec<u8> {
     let mut bytestream = Bytestream::new();
     if nes {
@@ -59,6 +62,10 @@ pub fn generate_binary(program: &AnalysedProgram, nes: bool) -> Vec<u8> {
     bytestream.bytes
 }
 
+/// Wrapper for the output binary
+///
+/// Contains helper functions for writing signed numbers,
+/// swapping endian-ness and writing the iNES header
 #[derive(Default)]
 pub struct Bytestream {
     bytes: Vec<u8>,
