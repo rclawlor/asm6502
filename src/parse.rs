@@ -1,3 +1,7 @@
+//! A 6502 assembly parser
+//!
+//! See [`Parser`] for details
+
 use std::{collections::HashSet, str::FromStr};
 
 use crate::{
@@ -33,6 +37,13 @@ pub fn capitalise(s: &str) -> String {
         .collect()
 }
 
+/// 6502 assembly parser
+///
+/// Parses tokens generated from the [`Lexer`] and generates AST
+/// nodes found in [`crate::ast`].
+///
+/// If the parser encounters any invalid syntax it will append a
+/// [`CompileError`] but continue parsing until the file is finished.
 struct Parser<'source> {
     lexer: Lexer<'source>,
     current: Token<'source>,
@@ -42,6 +53,7 @@ struct Parser<'source> {
 }
 
 impl<'source> Parser<'source> {
+    /// Create a new `Parser` instance
     fn new(source: &'source str) -> Self {
         let mut lexer = Lexer::new(source);
         let current = lexer.next_token();
@@ -56,6 +68,8 @@ impl<'source> Parser<'source> {
         }
     }
 
+    /// Parse the source file and generate a [`Program`], containing
+    /// a vec of AST nodes and unresolved labels
     fn parse_program(&mut self) -> Program {
         let start_loc = self.current.span;
         let mut items = Vec::new();
@@ -80,6 +94,7 @@ impl<'source> Parser<'source> {
         }
     }
 
+    /// Consume `TokenKind` if present, otherwise append a new `CompileError`
     fn expect_token(&mut self, kind: TokenKind) {
         if self.check(kind) {
             self.advance();
@@ -108,7 +123,7 @@ impl<'source> Parser<'source> {
         self.current.kind == T![eof]
     }
 
-    /// Get span relative to starting span
+    /// Get span from starting span to current
     fn span_from(&self, start: Span) -> Span {
         Span {
             start: start.start,
@@ -152,32 +167,13 @@ impl<'source> Parser<'source> {
                         Register::A
                     };
                     operands.push(Operand::Register(register));
-                    self.advance();
                 }
-                T![#] => {
-                    operands.push(Operand::Immediate);
-                    self.advance();
-                }
-                T![,] => {
-                    operands.push(Operand::Idx);
-                    self.advance();
-                }
-                T!['('] => {
-                    operands.push(Operand::LBracket);
-                    self.advance();
-                }
-                T![')'] => {
-                    operands.push(Operand::RBracket);
-                    self.advance();
-                }
-                T![<] => {
-                    byte_select = Some(ByteSelect::Low);
-                    self.advance();
-                }
-                T![>] => {
-                    byte_select = Some(ByteSelect::High);
-                    self.advance();
-                }
+                T![#] => operands.push(Operand::Immediate),
+                T![,] => operands.push(Operand::Idx),
+                T!['('] => operands.push(Operand::LBracket),
+                T![')'] => operands.push(Operand::RBracket),
+                T![<] => byte_select = Some(ByteSelect::Low),
+                T![>] => byte_select = Some(ByteSelect::High),
                 T![ident] => {
                     operands.push(Operand::Ident(self.parse_ident(), byte_select));
                     byte_select = None;
@@ -190,6 +186,7 @@ impl<'source> Parser<'source> {
                     break;
                 }
             }
+            self.advance();
         }
 
         Instruction {
@@ -200,6 +197,9 @@ impl<'source> Parser<'source> {
         }
     }
 
+    /// Parse a number
+    ///
+    /// Supports hex, binary and decimal number representations
     fn parse_number(&mut self) -> Number {
         let loc = self.current.span;
         let base = match &self.current.text.chars().next() {
@@ -230,7 +230,6 @@ impl<'source> Parser<'source> {
             );
             0
         };
-        self.expect_token(T![number]);
 
         Number {
             id: next_node_id(),
@@ -243,7 +242,6 @@ impl<'source> Parser<'source> {
     fn parse_ident(&mut self) -> Ident {
         let loc = self.current.span;
         let name = self.current.text.to_string();
-        self.expect_token(T![ident]);
 
         Ident {
             id: next_node_id(),
@@ -256,7 +254,6 @@ impl<'source> Parser<'source> {
     fn parse_string(&mut self) -> StringLiteral {
         let loc = self.current.span;
         let mut value = self.current.text.to_string();
-        self.expect_token(T![string]);
         // Remove string identifiers
         value = value.trim_matches(|c| c == '"' || c == '\'').to_string();
 
@@ -288,9 +285,10 @@ impl<'source> Parser<'source> {
                 T![ident] => args.push(DirectiveItem::Ident(self.parse_ident())),
                 T![number] => args.push(DirectiveItem::Number(self.parse_number())),
                 T![string] => args.push(DirectiveItem::String(self.parse_string())),
-                T![,] => self.advance(),
+                T![,] => (),
                 _ => break,
             }
+            self.advance();
         }
 
         Preprocessor {
@@ -301,6 +299,7 @@ impl<'source> Parser<'source> {
         }
     }
 
+    /// Parse address label
     fn parse_label(&mut self) -> Label {
         let loc = self.current.span;
         let label = self.current.text.strip_suffix(':').unwrap();

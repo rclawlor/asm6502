@@ -1,3 +1,7 @@
+//! A 6502 assembly lexer
+//!
+//! The [`Lexer`] struct converts text to a series of [`Token`]s
+
 use std::str::CharIndices;
 
 use phf::phf_map;
@@ -5,6 +9,7 @@ use unicode_ident::{is_xid_continue, is_xid_start};
 
 use crate::{ast::Span, T};
 
+/// `TokenKind` enum lists each token expected in a 6502 assembly file
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TokenKind {
     // Keywords
@@ -46,6 +51,7 @@ pub enum TokenKind {
     Eof,
 }
 
+/// Wrapper for [`TokenKind`] to give source text and [`Span`] information
 #[derive(Debug, Clone)]
 pub struct Token<'source> {
     pub kind: TokenKind,
@@ -53,6 +59,7 @@ pub struct Token<'source> {
     pub span: Span,
 }
 
+/// Hand-coded 6502 assembly lexer
 pub struct Lexer<'source> {
     source: &'source str,
     iter: CharIndices<'source>,
@@ -62,7 +69,7 @@ pub struct Lexer<'source> {
 }
 
 impl<'source> Lexer<'source> {
-    /// Create a new Lexer instance
+    /// Create a new `Lexer` instance
     pub fn new(source: &'source str) -> Self {
         let mut lexer = Self {
             source,
@@ -193,7 +200,7 @@ impl<'source> Lexer<'source> {
         }
     }
 
-    /// Skip all whitespace characters
+    /// Skip whitespace characters until next token
     fn skip_whitespace(&mut self) {
         if self.peek_char() == '\n' {
             self.line += 1;
@@ -264,6 +271,7 @@ macro_rules ! T {
     [set] => { $ crate::lex::TokenKind::SetPP };
 }
 
+/// Map keyword text to corresponding [`TokenKind`]
 static KEYWORDS: phf::Map<&'static str, TokenKind> = phf_map! {
     "A" => T![A],
     "X" => T![X],
