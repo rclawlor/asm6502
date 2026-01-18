@@ -5,6 +5,7 @@ use strum::{AsRefStr, EnumString, IntoStaticStr};
 use crate::{
     lex::TokenKind,
     semantic::{AddressMode, INSTRUCTION_SET},
+    T,
 };
 
 /// ID of AST node
@@ -131,9 +132,9 @@ pub enum Register {
 impl Register {
     pub fn from_token(token: TokenKind) -> Option<Register> {
         match token {
-            TokenKind::RegisterA => Some(Register::A),
-            TokenKind::RegisterX => Some(Register::X),
-            TokenKind::RegisterY => Some(Register::Y),
+            T![A] => Some(Register::A),
+            T![X] => Some(Register::X),
+            T![Y] => Some(Register::Y),
             _ => None,
         }
     }

@@ -4,6 +4,7 @@ use crate::{
     ast::*,
     error::CompileError,
     lex::{Lexer, Token, TokenKind},
+    T,
 };
 
 /// Parse source file
@@ -104,7 +105,7 @@ impl<'source> Parser<'source> {
 
     /// Check if at end of file
     fn at_end(&self) -> bool {
-        self.current.kind == TokenKind::Eof
+        self.current.kind == T![eof]
     }
 
     /// Get span relative to starting span
@@ -134,12 +135,12 @@ impl<'source> Parser<'source> {
             self.error(format!("Invalid opcode: {}", self.current.text), loc, None);
             Opcode::Adc
         };
-        self.expect_token(TokenKind::Opcode);
+        self.expect_token(T![opcode]);
         let mut operands = Vec::new();
         let mut byte_select = None;
         loop {
             match self.current.kind {
-                TokenKind::RegisterA | TokenKind::RegisterX | TokenKind::RegisterY => {
+                T![A] | T![X] | T![Y] => {
                     let register = if let Some(register) = Register::from_token(self.current.kind) {
                         register
                     } else {
@@ -153,35 +154,35 @@ impl<'source> Parser<'source> {
                     operands.push(Operand::Register(register));
                     self.advance();
                 }
-                TokenKind::Hash => {
+                T![#] => {
                     operands.push(Operand::Immediate);
                     self.advance();
                 }
-                TokenKind::Comma => {
+                T![,] => {
                     operands.push(Operand::Idx);
                     self.advance();
                 }
-                TokenKind::LeftBracket => {
+                T!['('] => {
                     operands.push(Operand::LBracket);
                     self.advance();
                 }
-                TokenKind::RightBracket => {
+                T![')'] => {
                     operands.push(Operand::RBracket);
                     self.advance();
                 }
-                TokenKind::LessThan => {
+                T![<] => {
                     byte_select = Some(ByteSelect::Low);
                     self.advance();
                 }
-                TokenKind::GreaterThan => {
+                T![>] => {
                     byte_select = Some(ByteSelect::High);
                     self.advance();
                 }
-                TokenKind::Ident => {
+                T![ident] => {
                     operands.push(Operand::Ident(self.parse_ident(), byte_select));
                     byte_select = None;
                 }
-                TokenKind::Number => {
+                T![number] => {
                     operands.push(Operand::Number(self.parse_number(), byte_select));
                     byte_select = None;
                 }
@@ -229,7 +230,7 @@ impl<'source> Parser<'source> {
             );
             0
         };
-        self.expect_token(TokenKind::Number);
+        self.expect_token(T![number]);
 
         Number {
             id: next_node_id(),
@@ -242,7 +243,7 @@ impl<'source> Parser<'source> {
     fn parse_ident(&mut self) -> Ident {
         let loc = self.current.span;
         let name = self.current.text.to_string();
-        self.expect_token(TokenKind::Ident);
+        self.expect_token(T![ident]);
 
         Ident {
             id: next_node_id(),
@@ -255,7 +256,7 @@ impl<'source> Parser<'source> {
     fn parse_string(&mut self) -> StringLiteral {
         let loc = self.current.span;
         let mut value = self.current.text.to_string();
-        self.expect_token(TokenKind::String);
+        self.expect_token(T![string]);
         // Remove string identifiers
         value = value.trim_matches(|c| c == '"' || c == '\'').to_string();
 
@@ -284,10 +285,10 @@ impl<'source> Parser<'source> {
         let mut args = Vec::new();
         while !self.lexer.at_end() {
             match self.current.kind {
-                TokenKind::Ident => args.push(DirectiveItem::Ident(self.parse_ident())),
-                TokenKind::Number => args.push(DirectiveItem::Number(self.parse_number())),
-                TokenKind::String => args.push(DirectiveItem::String(self.parse_string())),
-                TokenKind::Comma => self.advance(),
+                T![ident] => args.push(DirectiveItem::Ident(self.parse_ident())),
+                T![number] => args.push(DirectiveItem::Number(self.parse_number())),
+                T![string] => args.push(DirectiveItem::String(self.parse_string())),
+                T![,] => self.advance(),
                 _ => break,
             }
         }
@@ -305,7 +306,7 @@ impl<'source> Parser<'source> {
         let label = self.current.text.strip_suffix(':').unwrap();
         self.labels.insert(label.to_string());
 
-        self.expect_token(TokenKind::Label);
+        self.expect_token(T![label]);
 
         Label {
             id: next_node_id(),
@@ -315,7 +316,7 @@ impl<'source> Parser<'source> {
     }
 
     fn is_opcode(&self) -> bool {
-        self.current.kind == TokenKind::Opcode
+        self.current.kind == T![opcode]
     }
 
     fn is_preprocessor(&self) -> bool {
@@ -323,7 +324,7 @@ impl<'source> Parser<'source> {
     }
 
     fn is_label(&self) -> bool {
-        self.current.kind == TokenKind::Label
+        self.current.kind == T![label]
     }
 }
 
