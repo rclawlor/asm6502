@@ -1,3 +1,10 @@
+//! Semantic analysis of the parsed 6502 assembly
+//!
+//! This involves:
+//! - Resolving labels
+//! - Expanding preprocessors
+//! - Resolving opcode addressing modes
+
 use std::collections::HashMap;
 
 use phf::phf_map;
@@ -23,6 +30,7 @@ pub fn semantic_analysis(ast: &Program) -> Result<AnalysedProgram, Vec<CompileEr
     }
 }
 
+/// Resolve preprocessors and generate new [`Program`]
 struct SymbolResolver {
     ast: Program,
     symbol_table: HashMap<String, DirectiveItem>,
@@ -159,6 +167,7 @@ impl SymbolResolver {
     }
 }
 
+/// Post-semantic analysis program prepared for easy codegen
 #[derive(Clone, Debug)]
 pub struct AnalysedProgram {
     pub items: Vec<AnalysedItem>,
@@ -192,6 +201,7 @@ impl std::fmt::Display for AnalysedItem {
     }
 }
 
+/// A raw byte from a `.db` or `.pad` preprocessor
 #[derive(Clone, Debug)]
 pub struct AnalysedByte {
     address: u16,
@@ -204,6 +214,7 @@ impl std::fmt::Display for AnalysedByte {
     }
 }
 
+/// A raw word from a `.dw` preprocessor
 #[derive(Clone, Debug)]
 pub struct AnalysedWord {
     address: u16,
@@ -226,6 +237,7 @@ impl std::fmt::Display for AnalysedWord {
     }
 }
 
+/// [`Opcode`] with its [`AddressMode`] determined from operands
 #[derive(Clone, Copy, Debug)]
 pub struct AnalysedInstruction {
     address: u16,
@@ -256,6 +268,7 @@ impl std::fmt::Display for AnalysedInstruction {
     }
 }
 
+/// An address label that has not yet been defined
 #[derive(Debug, Clone)]
 struct UnknownLabel {
     idx: usize,
@@ -263,11 +276,17 @@ struct UnknownLabel {
 }
 
 impl UnknownLabel {
+    /// Create a new `UnknownLabel` instance
     fn new(idx: usize, byte_select: Option<ByteSelect>) -> UnknownLabel {
         UnknownLabel { idx, byte_select }
     }
 }
 
+/// Performs semantic analysis on parsed 6502 [`Program`]
+///
+/// It determines the opcode address modes, resolves outstanding preprocessors
+/// and resolves address labels. If targetting the NES console, this also
+/// creates the [`INesHeader`].
 struct SemanticAnalyser {
     ast: Program,
     /// Current address
@@ -293,6 +312,7 @@ impl SemanticAnalyser {
         }
     }
 
+    /// Analyse the resolved [`Program`] to prepare for codegen
     fn analyse(&mut self) -> AnalysedProgram {
         let mut header = INesHeader::new();
         for item in self.ast.items.clone() {
@@ -358,6 +378,7 @@ impl SemanticAnalyser {
         }
     }
 
+    /// Get number argument for preprocessor
     fn get_preprocessor_num(&mut self, pp: &Preprocessor) -> i32 {
         if let Some(DirectiveItem::Number(n)) = pp.args.first() {
             n.value
@@ -816,6 +837,7 @@ impl SemanticAnalyser {
     }
 }
 
+/// The address modes for the 6502
 #[derive(AsRefStr, Copy, Clone, Debug, PartialEq, Eq)]
 pub enum AddressMode {
     /// OPC A
@@ -847,6 +869,7 @@ pub enum AddressMode {
 }
 
 impl AddressMode {
+    /// Generate example instruction for given opcode
     pub fn as_help_str(&self, opcode: &str) -> String {
         match self {
             Self::ImpliedAccumulator => format!("{opcode}         (accumulator)"),
@@ -865,6 +888,7 @@ impl AddressMode {
         }
     }
 
+    /// Number of bytes an addressing mode requires
     pub fn num_bytes(&self) -> u16 {
         match self {
             Self::ImpliedAccumulator => 1,
@@ -883,6 +907,7 @@ impl AddressMode {
         }
     }
 
+    /// Size of operand in bytes for a given addressing mode
     pub fn operand_bytes(&self) -> u8 {
         match self {
             Self::Absolute | Self::AbsoluteXIdx | Self::AbsoluteYIdx | Self::Indirect => 2,
@@ -892,11 +917,13 @@ impl AddressMode {
     }
 }
 
+/// Stores [`AddressMode`] and corresponding opcode
 pub struct ModeDetails {
     pub mode: AddressMode,
     pub opcode: u8,
 }
 
+/// Map from opcode to all available addressing modes
 pub static INSTRUCTION_SET: phf::Map<&'static str, &'static [ModeDetails]> = phf_map! {
     "Adc" => &[
         ModeDetails { mode: AddressMode::Immediate, opcode: 0x69 },
