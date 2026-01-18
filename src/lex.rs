@@ -369,13 +369,28 @@ mod tests {
 
     #[test]
     fn test_preprocessor() {
-        let tokens = lex(".set .org .inesmap .ineschr");
-        assert_eq!(tokens.len(), 4 + 1);
-        assert_eq!(tokens[0].kind, T![set]);
-        assert_eq!(tokens[1].kind, T![org]);
+        let tokens = lex("
+            .inesprg
+            .ineschr
+            .inesmap
+            .db
+            .dw
+            .incbin
+            .pad
+            .org
+            .set
+        ");
+        assert_eq!(tokens.len(), 9 + 1);
+        assert_eq!(tokens[0].kind, T![inesprg]);
+        assert_eq!(tokens[1].kind, T![ineschr]);
         assert_eq!(tokens[2].kind, T![inesmap]);
-        assert_eq!(tokens[3].kind, T![ineschr]);
-        assert_eq!(tokens[4].kind, T![eof]);
+        assert_eq!(tokens[3].kind, T![db]);
+        assert_eq!(tokens[4].kind, T![dw]);
+        assert_eq!(tokens[5].kind, T![incbin]);
+        assert_eq!(tokens[6].kind, T![pad]);
+        assert_eq!(tokens[7].kind, T![org]);
+        assert_eq!(tokens[8].kind, T![set]);
+        assert_eq!(tokens[9].kind, T![eof]);
     }
 
     #[test]
