@@ -281,7 +281,7 @@ impl<'source> Parser<'source> {
             );
             Directive::Set
         };
-        self.expect_token(TokenKind::Preprocessor);
+        self.advance();
         let mut args = Vec::new();
         while !self.lexer.at_end() {
             match self.current.kind {
@@ -320,7 +320,18 @@ impl<'source> Parser<'source> {
     }
 
     fn is_preprocessor(&self) -> bool {
-        self.current.kind == TokenKind::Preprocessor
+        matches!(
+            self.current.kind,
+            T![inesprg]
+                | T![ineschr]
+                | T![inesmap]
+                | T![db]
+                | T![dw]
+                | T![incbin]
+                | T![pad]
+                | T![org]
+                | T![set]
+        )
     }
 
     fn is_label(&self) -> bool {

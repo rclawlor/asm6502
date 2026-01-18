@@ -3,20 +3,26 @@ use std::str::CharIndices;
 use phf::phf_map;
 use unicode_ident::{is_xid_continue, is_xid_start};
 
-use crate::{
-    ast::{Directive, Span},
-    parse::capitalise,
-    T,
-};
+use crate::{ast::Span, T};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TokenKind {
     // Keywords
-    Opcode,       // e.g. LDA
-    RegisterA,    // "A"
-    RegisterX,    // "X"
-    RegisterY,    // "Y"
-    Preprocessor, // e.g. .include
+    Opcode,    // e.g. LDA
+    RegisterA, // "A"
+    RegisterX, // "X"
+    RegisterY, // "Y"
+
+    // Preprocessors
+    InesprgPP, // ".inesprg"
+    IneschrPP, // ".ineschr"
+    InesmapPP, // ".inesmap"
+    DbPP,      // ".db"
+    DwPP,      // ".dw"
+    IncbinPP,  // ".incbin"
+    PadPP,     // ".pad"
+    OrgPP,     // ".org"
+    SetPP,     // ".set"
 
     // Delimiters
     Comma,        // ","
@@ -113,13 +119,20 @@ impl<'source> Lexer<'source> {
                         self.advance();
                     }
 
-                    let text = &self.source[start_pos..self.pos]
+                    let text = self.source[start_pos..self.pos]
                         .strip_prefix('.')
                         .expect("Already checked to start with '.' above");
-                    if Directive::is_directive(&capitalise(text)) {
-                        TokenKind::Preprocessor
-                    } else {
-                        TokenKind::InvalidToken
+                    match text.to_ascii_lowercase().as_str() {
+                        "inesprg" => T![inesprg],
+                        "ineschr" => T![ineschr],
+                        "inesmap" => T![inesmap],
+                        "db" => T![db],
+                        "dw" => T![dw],
+                        "incbin" => T![incbin],
+                        "pad" => T![pad],
+                        "org" => T![org],
+                        "set" => T![set],
+                        _ => TokenKind::InvalidToken,
                     }
                 }
 
@@ -239,6 +252,16 @@ macro_rules ! T {
     [>] => { $ crate::lex::TokenKind::GreaterThan };
     [invalid] => { $ crate::lex::TokenKind::InvalidToken };
     [eof] => { $ crate::lex::TokenKind::Eof };
+    [inesprg] => { $ crate::lex::TokenKind::InesprgPP };
+    [ineschr] => { $ crate::lex::TokenKind::IneschrPP };
+    [inesmap] => { $ crate::lex::TokenKind::InesmapPP };
+    [inesmir] => { $ crate::lex::TokenKind::InesmirPP };
+    [db] => { $ crate::lex::TokenKind::DbPP };
+    [dw] => { $ crate::lex::TokenKind::DwPP };
+    [incbin] => { $ crate::lex::TokenKind::IncbinPP };
+    [pad] => { $ crate::lex::TokenKind::PadPP };
+    [org] => { $ crate::lex::TokenKind::OrgPP };
+    [set] => { $ crate::lex::TokenKind::SetPP };
 }
 
 static KEYWORDS: phf::Map<&'static str, TokenKind> = phf_map! {
@@ -348,10 +371,10 @@ mod tests {
     fn test_preprocessor() {
         let tokens = lex(".set .org .inesmap .ineschr");
         assert_eq!(tokens.len(), 4 + 1);
-        assert_eq!(tokens[0].kind, TokenKind::Preprocessor);
-        assert_eq!(tokens[1].kind, TokenKind::Preprocessor);
-        assert_eq!(tokens[2].kind, TokenKind::Preprocessor);
-        assert_eq!(tokens[3].kind, TokenKind::Preprocessor);
+        assert_eq!(tokens[0].kind, T![set]);
+        assert_eq!(tokens[1].kind, T![org]);
+        assert_eq!(tokens[2].kind, T![inesmap]);
+        assert_eq!(tokens[3].kind, T![ineschr]);
         assert_eq!(tokens[4].kind, T![eof]);
     }
 
