@@ -1,6 +1,6 @@
 //! Contains the AST node types generated during parsing
 
-use std::{collections::HashSet, str::FromStr, sync::atomic::AtomicUsize};
+use std::{collections::HashMap, str::FromStr, sync::atomic::AtomicUsize};
 
 use strum::{AsRefStr, EnumString, IntoStaticStr};
 
@@ -11,7 +11,7 @@ use crate::{
 };
 
 /// ID of AST node
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NodeId(usize);
 
 /// Used to track what AST node IDs have been used
@@ -55,7 +55,8 @@ pub struct Program {
     pub id: NodeId,
     pub span: Span,
     pub items: Vec<ProgramItem>,
-    pub labels: HashSet<String>,
+    pub label_definitions: HashMap<String, NodeId>,
+    pub constant_definitions: HashMap<String, NodeId>,
 }
 
 #[derive(Debug, Clone)]

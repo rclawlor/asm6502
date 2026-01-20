@@ -72,20 +72,11 @@ impl SymbolResolver {
 
     fn resolve_preprocessor(&mut self, pp: &Preprocessor) {
         match &pp.directive {
-            Directive::Incbin {
-                id: _,
-                span,
-                filename,
-            } => {
+            Directive::Incbin { span, filename, .. } => {
                 let bin = self.resolve_binary(span, filename);
                 self.items.push(ProgramItem::Binary(bin));
             }
-            Directive::Set {
-                id: _,
-                span: _,
-                ident,
-                value,
-            } => {
+            Directive::Set { ident, value, .. } => {
                 self.symbol_table
                     .insert(ident.value.clone(), DirectiveItem::Number(*value));
             }
@@ -139,7 +130,7 @@ impl SymbolResolver {
                             );
                         }
                     }
-                } else if self.ast.labels.contains(&ident.value) {
+                } else if self.ast.label_definitions.contains_key(&ident.value) {
                     new_instr
                         .operands
                         .push(Operand::AddrLabel(ident.value.clone(), *b));
@@ -284,8 +275,8 @@ struct SemanticAnalyser {
     address: u16,
     /// Post-analysis items
     items: Vec<AnalysedItem>,
-    /// Labels and corresponding addresses
-    labels: HashMap<String, i32>,
+    /// Node to corresponding address
+    node_addresses: HashMap<NodeId, u16>,
     /// Labels not yet found
     unknown_labels: HashMap<String, Vec<UnknownLabel>>,
     errors: Vec<CompileError>,
@@ -297,7 +288,7 @@ impl SemanticAnalyser {
             ast,
             address: 0x0000,
             items: Vec::new(),
-            labels: HashMap::new(),
+            node_addresses: HashMap::new(),
             unknown_labels: HashMap::new(),
             errors: Vec::new(),
         }
@@ -382,9 +373,9 @@ impl SemanticAnalyser {
             .map(|x| match x {
                 ValueExpr::Number(n) => n.value,
                 ValueExpr::Ident(i) => {
-                    if self.ast.labels.contains(&i.value) {
-                        if let Some(addr) = self.labels.get(&i.value) {
-                            *addr
+                    if let Some(id) = self.ast.label_definitions.get(&i.value) {
+                        if let Some(addr) = self.node_addresses.get(id) {
+                            *addr as i32
                         } else {
                             self.unknown_labels
                                 .entry(i.value.clone())
@@ -480,11 +471,11 @@ impl SemanticAnalyser {
                 } else {
                     AddressMode::Absolute
                 };
-                if self.ast.labels.contains(s) {
-                    if let Some(addr) = self.labels.get(s) {
+                if let Some(id) = self.ast.label_definitions.get(s) {
+                    if let Some(addr) = self.node_addresses.get(id) {
                         if m == AddressMode::Relative {
                             // Difference is w.r.t. PC after instruction is executed, hence +2
-                            let mut diff = *addr - i32::from(self.address + 2);
+                            let mut diff = i32::from(*addr) - i32::from(self.address + 2);
                             if !(-128..=127).contains(&diff) {
                                 self.error(
                                     format!("Jump out of range (-128, +127): {diff:+}"),
@@ -495,7 +486,7 @@ impl SemanticAnalyser {
                             }
                             (m, Some(diff))
                         } else {
-                            (m, Some(*addr))
+                            (m, Some(i32::from(*addr)))
                         }
                     } else {
                         self.unknown_labels
@@ -511,9 +502,9 @@ impl SemanticAnalyser {
             }
             // Absolute, X-indexed with label
             [Operand::AddrLabel(s, b), Operand::Idx, Operand::Register(Register::X)] => {
-                if self.ast.labels.contains(s) {
-                    if let Some(addr) = self.labels.get(s) {
-                        (AddressMode::AbsoluteXIdx, Some(*addr))
+                if let Some(id) = self.ast.label_definitions.get(s) {
+                    if let Some(addr) = self.node_addresses.get(id) {
+                        (AddressMode::AbsoluteXIdx, Some(i32::from(*addr)))
                     } else {
                         self.unknown_labels
                             .entry(s.clone())
@@ -528,9 +519,9 @@ impl SemanticAnalyser {
             }
             // Absolute, Y-indexed with label
             [Operand::AddrLabel(s, b), Operand::Idx, Operand::Register(Register::Y)] => {
-                if self.ast.labels.contains(s) {
-                    if let Some(addr) = self.labels.get(s) {
-                        (AddressMode::AbsoluteYIdx, Some(*addr))
+                if let Some(id) = self.ast.label_definitions.get(s) {
+                    if let Some(addr) = self.node_addresses.get(id) {
+                        (AddressMode::AbsoluteYIdx, Some(i32::from(*addr)))
                     } else {
                         self.unknown_labels
                             .entry(s.clone())
@@ -569,14 +560,17 @@ impl SemanticAnalyser {
             }
             // Immediate
             [Operand::AddrLabel(s, b)] if b.is_some() => {
-                if self.ast.labels.contains(s) {
-                    if let Some(addr) = self.labels.get(s) {
+                if let Some(id) = self.ast.label_definitions.get(s) {
+                    if let Some(addr) = self.node_addresses.get(id) {
                         match b {
-                            Some(ByteSelect::Low) => (AddressMode::Immediate, Some(addr & 0x00FF)),
-                            Some(ByteSelect::High) => {
-                                (AddressMode::Immediate, Some((addr & 0xFF00) >> 8))
+                            Some(ByteSelect::Low) => {
+                                (AddressMode::Immediate, Some(i32::from(addr & 0x00FF)))
                             }
-                            None => (AddressMode::Immediate, Some(*addr)),
+                            Some(ByteSelect::High) => (
+                                AddressMode::Immediate,
+                                Some(i32::from((addr & 0xFF00) >> 8)),
+                            ),
+                            None => (AddressMode::Immediate, Some(i32::from(*addr))),
                         }
                     } else {
                         self.unknown_labels
@@ -710,7 +704,7 @@ impl SemanticAnalyser {
 
     /// Insert (label, addr) pair into lookup and resolve
     fn analyse_label(&mut self, label: &Label) {
-        self.labels.insert(label.label.clone(), self.address.into());
+        self.node_addresses.insert(label.id, self.address.into());
         let unmapped_items = self.unknown_labels.remove(&label.label);
         if let Some(items) = unmapped_items {
             for item in items {

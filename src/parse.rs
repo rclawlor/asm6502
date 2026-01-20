@@ -2,7 +2,7 @@
 //!
 //! See [`Parser`] for details
 
-use std::{collections::HashSet, str::FromStr};
+use std::{collections::HashMap, str::FromStr};
 
 use crate::{
     ast::*,
@@ -48,7 +48,8 @@ struct Parser<'source> {
     lexer: Lexer<'source>,
     current: Token<'source>,
     previous: Token<'source>,
-    labels: HashSet<String>,
+    labels: HashMap<String, NodeId>,
+    constants: HashMap<String, NodeId>,
     errors: Vec<CompileError>,
 }
 
@@ -63,7 +64,8 @@ impl<'source> Parser<'source> {
             lexer,
             current,
             previous,
-            labels: HashSet::new(),
+            labels: HashMap::new(),
+            constants: HashMap::new(),
             errors: Vec::new(),
         }
     }
@@ -90,7 +92,8 @@ impl<'source> Parser<'source> {
             id: next_node_id(),
             span: self.span_from(start_loc),
             items,
-            labels: self.labels.clone(),
+            label_definitions: self.labels.clone(),
+            constant_definitions: self.constants.clone(),
         }
     }
 
@@ -378,8 +381,10 @@ impl<'source> Parser<'source> {
                 self.expect_token(T![ident]);
                 let value = self.parse_number();
                 self.expect_token(T![number]);
+                let id = next_node_id();
+                self.constants.insert(ident.value.clone(), id);
                 Directive::Set {
-                    id: next_node_id(),
+                    id,
                     span: self.span_from(loc),
                     ident,
                     value,
@@ -411,12 +416,13 @@ impl<'source> Parser<'source> {
     fn parse_label(&mut self) -> Label {
         let loc = self.current.span;
         let label = self.current.text.strip_suffix(':').unwrap();
-        self.labels.insert(label.to_string());
+        let id = next_node_id();
+        self.labels.insert(label.to_string(), id);
 
         self.expect_token(T![label]);
 
         Label {
-            id: next_node_id(),
+            id,
             span: loc,
             label: label.to_string(),
         }
