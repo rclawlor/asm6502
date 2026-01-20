@@ -71,54 +71,45 @@ impl SymbolResolver {
     }
 
     fn resolve_preprocessor(&mut self, pp: &Preprocessor) {
-        match pp.directive {
-            Directive::Incbin => {
-                let bin = self.resolve_binary(pp);
+        match &pp.directive {
+            Directive::Incbin {
+                id: _,
+                span,
+                filename,
+            } => {
+                let bin = self.resolve_binary(span, filename);
                 self.items.push(ProgramItem::Binary(bin));
             }
-            Directive::Set => {
-                if pp.args.len() == 2 {
-                    match &pp.args[0] {
-                        DirectiveItem::Ident(ident) => {
-                            self.symbol_table
-                                .insert(ident.value.clone(), pp.args[1].clone());
-                        }
-                        _ => self.error(
-                            String::from("'.set' requires a variable name"),
-                            pp.span,
-                            None,
-                        ),
-                    }
-                } else {
-                    self.error(
-                        format!("'.set' requires 2 arguments, got {}", pp.args.len()),
-                        pp.span,
-                        None,
-                    );
-                }
+            Directive::Set {
+                id: _,
+                span: _,
+                ident,
+                value,
+            } => {
+                self.symbol_table
+                    .insert(ident.value.clone(), DirectiveItem::Number(*value));
             }
             _ => self.items.push(ProgramItem::Preprocessor(pp.clone())),
         }
     }
 
-    fn resolve_binary(&mut self, pp: &Preprocessor) -> Binary {
-        let (filename, span, bytes) = if let Some(DirectiveItem::String(s)) = pp.args.first() {
-            let b = match std::fs::read(&s.value) {
-                Ok(b) => b,
-                Err(_) => {
-                    self.error(format!("Unable to read file '{}'", s.value), s.span, None);
-                    Vec::new()
-                }
-            };
-            (s.value.clone(), s.span, b)
-        } else {
-            (String::new(), pp.span, Vec::new())
+    fn resolve_binary(&mut self, span: &Span, filename: &StringLiteral) -> Binary {
+        let bytes = match std::fs::read(&filename.value) {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                self.error(
+                    format!("Unable to read file '{}'", filename.value),
+                    filename.span,
+                    None,
+                );
+                Vec::new()
+            }
         };
 
         Binary {
             id: next_node_id(),
-            span,
-            filename,
+            span: *span,
+            filename: filename.value.clone(),
             bytes,
         }
     }
@@ -131,7 +122,7 @@ impl SymbolResolver {
                 if let Some(v) = self.symbol_table.get(&ident.value) {
                     match v {
                         DirectiveItem::Number(n) => {
-                            new_instr.operands.push(Operand::Number(n.clone(), *b));
+                            new_instr.operands.push(Operand::Number(*n, *b));
                         }
                         DirectiveItem::String(s) => {
                             self.error(
@@ -238,7 +229,7 @@ impl std::fmt::Display for AnalysedWord {
 }
 
 /// [`Opcode`] with its [`AddressMode`] determined from operands
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct AnalysedInstruction {
     address: u16,
     pub opcode: Opcode,
@@ -322,35 +313,33 @@ impl SemanticAnalyser {
                     self.items.push(AnalysedItem::Instruction(i));
                 }
                 ProgramItem::Preprocessor(pp) => match pp.directive {
-                    Directive::Inesprg => {
-                        header.prg_size_16kb = self.get_preprocessor_num(&pp) as u8;
+                    Directive::Inesprg { size, .. } => header.prg_size_16kb = size.value as u8,
+                    Directive::Ineschr { size, .. } => header.chr_size_16kb = size.value as u8,
+                    Directive::Inesmap { map, .. } => header.mapper = map.value as u8,
+                    Directive::Inesmir { mirror, .. } => header.mirror = mirror.value as u8,
+                    Directive::Org { address, .. } => {
+                        self.address = u16::try_from(address.value).unwrap_or_else(|_| {
+                            self.error(
+                                format!("Address {:#10x} out of u16 range", address.value),
+                                pp.span,
+                                None,
+                            );
+                            0x0000
+                        });
                     }
-                    Directive::Ineschr => {
-                        header.chr_size_16kb = self.get_preprocessor_num(&pp) as u8;
-                    }
-                    Directive::Inesmap => header.mapper = self.get_preprocessor_num(&pp) as u8,
-                    Directive::Inesmir => header.mirror = self.get_preprocessor_num(&pp) as u8,
-                    Directive::Org => match pp.args.first() {
-                        Some(DirectiveItem::Number(n)) => {
-                            self.address = u16::try_from(n.value).unwrap();
-                        }
-                        _ => self.error(String::from("Incorrect/missing argument"), pp.span, None),
-                    },
-                    Directive::Db => {
-                        let b = self.analyse_byte(&pp);
+                    Directive::Db { bytes, .. } => {
+                        let b = self.analyse_byte(&bytes);
                         for byte in b {
                             self.items.push(AnalysedItem::Byte(byte));
                         }
                     }
-                    Directive::Dw => {
-                        let w = self.analyse_word(&pp);
+                    Directive::Dw { words, .. } => {
+                        let w = self.analyse_word(&words);
                         for word in w {
                             self.items.push(AnalysedItem::Word(word));
                         }
                     }
-                    Directive::Pad => {
-                        self.analyse_pad(&pp);
-                    }
+                    Directive::Pad { target_addr, .. } => self.analyse_pad(&target_addr),
                     _ => self.error(
                         format!(
                             "Preprocessor {:#?} should be resolved before semantic analysis",
@@ -378,20 +367,6 @@ impl SemanticAnalyser {
         }
     }
 
-    /// Get number argument for preprocessor
-    fn get_preprocessor_num(&mut self, pp: &Preprocessor) -> i32 {
-        if let Some(DirectiveItem::Number(n)) = pp.args.first() {
-            n.value
-        } else {
-            self.error(
-                String::from("Preprocessor requires number argument"),
-                pp.span,
-                None,
-            );
-            1
-        }
-    }
-
     /// Append new error message
     fn error(&mut self, message: String, span: Span, help: Option<String>) {
         self.errors.push(CompileError {
@@ -401,13 +376,12 @@ impl SemanticAnalyser {
         });
     }
 
-    fn analyse_word(&mut self, pp: &Preprocessor) -> Vec<AnalysedWord> {
-        let values = pp
-            .args
+    fn analyse_word(&mut self, words: &[ValueExpr]) -> Vec<AnalysedWord> {
+        let values = words
             .iter()
             .map(|x| match x {
-                DirectiveItem::Number(n) => n.value,
-                DirectiveItem::Ident(i) => {
+                ValueExpr::Number(n) => n.value,
+                ValueExpr::Ident(i) => {
                     if self.ast.labels.contains(&i.value) {
                         if let Some(addr) = self.labels.get(&i.value) {
                             *addr
@@ -423,14 +397,6 @@ impl SemanticAnalyser {
                         UNKNOWN_ADDR
                     }
                 }
-                _ => {
-                    self.error(
-                        String::from("Expected number or label for .dw"),
-                        pp.span,
-                        None,
-                    );
-                    UNKNOWN_ADDR
-                }
             })
             .collect::<Vec<i32>>();
         let mut words = Vec::new();
@@ -444,13 +410,12 @@ impl SemanticAnalyser {
         words
     }
 
-    fn analyse_byte(&mut self, pp: &Preprocessor) -> Vec<AnalysedByte> {
-        let values = pp
-            .args
+    fn analyse_byte(&mut self, bytes: &[ValueExpr]) -> Vec<AnalysedByte> {
+        let values = bytes
             .iter()
             .map(|x| match x {
-                DirectiveItem::Number(n) => n.value,
-                DirectiveItem::Ident(i) => {
+                ValueExpr::Number(n) => n.value,
+                ValueExpr::Ident(i) => {
                     self.error(
                         format!(
                             "2 byte address for label '{}' exceeds .db 1 byte range",
@@ -460,10 +425,6 @@ impl SemanticAnalyser {
                         None,
                     );
                     0x00
-                }
-                _ => {
-                    self.error(String::from("Expected number for .dw"), pp.span, None);
-                    UNKNOWN_ADDR
                 }
             })
             .collect::<Vec<i32>>();
@@ -478,18 +439,8 @@ impl SemanticAnalyser {
         bytes
     }
 
-    fn analyse_pad(&mut self, pp: &Preprocessor) {
-        let target_addr = if let Some(DirectiveItem::Number(n)) = pp.args.first() {
-            n.value as u16
-        } else {
-            self.error(
-                String::from("Expected target address for .pad preprocessor"),
-                pp.span,
-                None,
-            );
-            0
-        };
-        while self.address < target_addr {
+    fn analyse_pad(&mut self, target_addr: &Number) {
+        while self.address < (target_addr.value as u16) {
             self.items.push(AnalysedItem::Byte(AnalysedByte {
                 address: self.address,
                 value: 0x00,

@@ -267,35 +267,143 @@ impl<'source> Parser<'source> {
     /// Parse preprocessor and operands
     fn parse_preprocessor(&mut self) -> Preprocessor {
         let loc = self.current.span;
-        let key = capitalise(self.current.text.strip_prefix('.').unwrap());
-        let directive = if let Ok(directive) = Directive::from_str(key.as_str()) {
-            directive
-        } else {
-            self.error(
-                format!("Invalid directive: {}", self.current.text),
-                loc,
-                None,
-            );
-            Directive::Set
-        };
+        let key = self
+            .current
+            .text
+            .strip_prefix('.')
+            .unwrap()
+            .to_ascii_lowercase();
+
         self.advance();
-        let mut args = Vec::new();
-        while !self.lexer.at_end() {
-            match self.current.kind {
-                T![ident] => args.push(DirectiveItem::Ident(self.parse_ident())),
-                T![number] => args.push(DirectiveItem::Number(self.parse_number())),
-                T![string] => args.push(DirectiveItem::String(self.parse_string())),
-                T![,] => (),
-                _ => break,
+        let directive = match key.as_str() {
+            "inesprg" => {
+                let size = self.parse_number();
+                self.expect_token(T![number]);
+                Directive::Inesprg {
+                    id: next_node_id(),
+                    span: self.span_from(loc),
+                    size,
+                }
             }
-            self.advance();
-        }
+            "ineschr" => {
+                let size = self.parse_number();
+                self.expect_token(T![number]);
+                Directive::Ineschr {
+                    id: next_node_id(),
+                    span: self.span_from(loc),
+                    size,
+                }
+            }
+            "inesmap" => {
+                let map = self.parse_number();
+                self.expect_token(T![number]);
+                Directive::Inesmap {
+                    id: next_node_id(),
+                    span: self.span_from(loc),
+                    map,
+                }
+            }
+            "inesmir" => {
+                let mirror = self.parse_number();
+                self.expect_token(T![number]);
+                Directive::Inesmir {
+                    id: next_node_id(),
+                    span: self.span_from(loc),
+                    mirror,
+                }
+            }
+            "db" => {
+                let mut bytes = Vec::new();
+                while !self.lexer.at_end() {
+                    match self.current.kind {
+                        T![ident] => bytes.push(ValueExpr::Ident(self.parse_ident())),
+                        T![number] => bytes.push(ValueExpr::Number(self.parse_number())),
+                        T![,] => (),
+                        _ => break,
+                    }
+                    self.advance();
+                }
+                Directive::Db {
+                    id: next_node_id(),
+                    span: self.span_from(loc),
+                    bytes,
+                }
+            }
+            "dw" => {
+                let mut words = Vec::new();
+                while !self.lexer.at_end() {
+                    match self.current.kind {
+                        T![ident] => words.push(ValueExpr::Ident(self.parse_ident())),
+                        T![number] => words.push(ValueExpr::Number(self.parse_number())),
+                        T![,] => (),
+                        _ => break,
+                    }
+                    self.advance();
+                }
+                Directive::Dw {
+                    id: next_node_id(),
+                    span: self.span_from(loc),
+                    words,
+                }
+            }
+            "incbin" => {
+                let filename = self.parse_string();
+                self.expect_token(T![string]);
+                Directive::Incbin {
+                    id: next_node_id(),
+                    span: self.span_from(loc),
+                    filename,
+                }
+            }
+            "pad" => {
+                let target_addr = self.parse_number();
+                self.expect_token(T![number]);
+                Directive::Pad {
+                    id: next_node_id(),
+                    span: self.span_from(loc),
+                    target_addr,
+                }
+            }
+            "org" => {
+                let address = self.parse_number();
+                self.expect_token(T![number]);
+                Directive::Org {
+                    id: next_node_id(),
+                    span: self.span_from(loc),
+                    address,
+                }
+            }
+            "set" => {
+                let ident = self.parse_ident();
+                self.expect_token(T![ident]);
+                let value = self.parse_number();
+                self.expect_token(T![number]);
+                Directive::Set {
+                    id: next_node_id(),
+                    span: self.span_from(loc),
+                    ident,
+                    value,
+                }
+            }
+            other => {
+                self.error(
+                    format!("Unrecognised preprocessor: {other}"),
+                    self.span_from(loc),
+                    None,
+                );
+                self.advance();
+                Directive::Db {
+                    id: next_node_id(),
+                    span: self.span_from(loc),
+                    bytes: Vec::new(),
+                }
+            }
+        };
 
         Preprocessor {
             id: next_node_id(),
             span: self.span_from(loc),
             directive,
-            args,
         }
     }
 
@@ -460,15 +568,21 @@ mod tests {
         assert_eq!(program.items.len(), 2);
         match program.items.first() {
             Some(ProgramItem::Preprocessor(pp)) => {
-                assert_eq!(pp.directive, Directive::Db);
-                assert_eq!(pp.args.len(), 2);
+                if let Directive::Db { bytes, .. } = &pp.directive {
+                    assert_eq!(bytes.len(), 2);
+                } else {
+                    panic!("Expected .db directive");
+                }
             }
             _ => panic!("Expected .db preprocessor"),
         }
         match program.items.get(1) {
             Some(ProgramItem::Preprocessor(pp)) => {
-                assert_eq!(pp.directive, Directive::Dw);
-                assert_eq!(pp.args.len(), 2);
+                if let Directive::Dw { words, .. } = &pp.directive {
+                    assert_eq!(words.len(), 2);
+                } else {
+                    panic!("Expected .db directive");
+                }
             }
             _ => panic!("Expected .dw preprocessor"),
         }

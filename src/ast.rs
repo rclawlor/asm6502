@@ -72,7 +72,6 @@ pub struct Preprocessor {
     pub id: NodeId,
     pub span: Span,
     pub directive: Directive,
-    pub args: Vec<DirectiveItem>,
 }
 
 #[derive(Debug, Clone)]
@@ -145,7 +144,7 @@ impl Register {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Number {
     pub id: NodeId,
     pub span: Span,
@@ -153,7 +152,7 @@ pub struct Number {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ident {
     pub id: NodeId,
     pub span: Span,
@@ -168,24 +167,65 @@ pub struct StringLiteral {
     pub value: String,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, EnumString, IntoStaticStr)]
-pub enum Directive {
-    Inesprg,
-    Ineschr,
-    Inesmap,
-    Inesmir,
-    Db,
-    Dw,
-    Incbin,
-    Pad,
-    Org,
-    Set,
+#[derive(Debug, Clone)]
+pub enum ValueExpr {
+    Number(Number),
+    Ident(Ident),
 }
 
-impl Directive {
-    pub fn is_directive(s: &str) -> bool {
-        Directive::from_str(s).is_ok()
-    }
+#[derive(Clone, Debug)]
+pub enum Directive {
+    Inesprg {
+        id: NodeId,
+        span: Span,
+        size: Number,
+    },
+    Ineschr {
+        id: NodeId,
+        span: Span,
+        size: Number,
+    },
+    Inesmap {
+        id: NodeId,
+        span: Span,
+        map: Number,
+    },
+    Inesmir {
+        id: NodeId,
+        span: Span,
+        mirror: Number,
+    },
+    Db {
+        id: NodeId,
+        span: Span,
+        bytes: Vec<ValueExpr>,
+    },
+    Dw {
+        id: NodeId,
+        span: Span,
+        words: Vec<ValueExpr>,
+    },
+    Incbin {
+        id: NodeId,
+        span: Span,
+        filename: StringLiteral,
+    },
+    Pad {
+        id: NodeId,
+        span: Span,
+        target_addr: Number,
+    },
+    Org {
+        id: NodeId,
+        span: Span,
+        address: Number,
+    },
+    Set {
+        id: NodeId,
+        span: Span,
+        ident: Ident,
+        value: Number,
+    },
 }
 
 /// All opcodes in the 6502 (excludes illegal opcodes)
