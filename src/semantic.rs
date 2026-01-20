@@ -277,6 +277,8 @@ struct SemanticAnalyser {
     items: Vec<AnalysedItem>,
     /// Node to corresponding address
     node_addresses: HashMap<NodeId, u16>,
+    /// Node to corresponding value
+    constant_values: HashMap<NodeId, i32>,
     /// Labels not yet found
     unknown_labels: HashMap<String, Vec<UnknownLabel>>,
     errors: Vec<CompileError>,
@@ -289,6 +291,7 @@ impl SemanticAnalyser {
             address: 0x0000,
             items: Vec::new(),
             node_addresses: HashMap::new(),
+            constant_values: HashMap::new(),
             unknown_labels: HashMap::new(),
             errors: Vec::new(),
         }
@@ -331,6 +334,9 @@ impl SemanticAnalyser {
                         }
                     }
                     Directive::Pad { target_addr, .. } => self.analyse_pad(&target_addr),
+                    Directive::Set { ident, value, .. } => {
+                        self.constant_values.insert(ident.id, value.value);
+                    },
                     _ => self.error(
                         format!(
                             "Preprocessor {:#?} should be resolved before semantic analysis",
@@ -1107,6 +1113,48 @@ mod tests {
                 match program.items.first() {
                     Some(AnalysedItem::Instruction(instr)) => {
                         assert_eq!(instr.operand, Some(0x0003));
+                    }
+                    _ => panic!("Expected instruction"),
+                }
+            }
+            Err(e) => panic!("Failed to analyse program: {:#?}", e),
+        }
+    }
+
+    #[test]
+    fn test_past_definitions() {
+        let program = "
+            .set test $02
+            LDA test
+        ";
+        let ast = assemble(program, "");
+        match semantic_analysis(&ast) {
+            Ok(program) => {
+                assert_eq!(program.items.len(), 1);
+                match program.items.first() {
+                    Some(AnalysedItem::Instruction(instr)) => {
+                        assert_eq!(instr.operand, Some(0x0002));
+                    }
+                    _ => panic!("Expected instruction"),
+                }
+            }
+            Err(e) => panic!("Failed to analyse program: {:#?}", e),
+        }
+    }
+
+    #[test]
+    fn test_forward_definitions() {
+        let program = "
+            LDA test
+            .set test $02
+        ";
+        let ast = assemble(program, "");
+        match semantic_analysis(&ast) {
+            Ok(program) => {
+                assert_eq!(program.items.len(), 1);
+                match program.items.first() {
+                    Some(AnalysedItem::Instruction(instr)) => {
+                        assert_eq!(instr.operand, Some(0x0002));
                     }
                     _ => panic!("Expected instruction"),
                 }
