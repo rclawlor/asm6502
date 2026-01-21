@@ -218,8 +218,7 @@ impl SemanticAnalyser {
                     }
                     Directive::Pad { target_addr, .. } => self.analyse_pad(&target_addr),
                     Directive::Set { ident, value, .. } => {
-                        self.constant_values.insert(ident.id, value.value);
-                        self.resolve_constant(&ident.value, value.value);
+                        self.resolve_constant(&ident, &value);
                     }
                     _ => self.error(
                         format!(
@@ -613,8 +612,9 @@ impl SemanticAnalyser {
         new_instr
     }
 
-    fn resolve_constant(&mut self, label: &str, value: i32) {
-        let unmapped_items = self.unknown_labels.remove(label);
+    fn resolve_constant(&mut self, ident: &Ident, value: &Number) {
+        self.constant_values.insert(ident.id, value.value);
+        let unmapped_items = self.unknown_labels.remove(&ident.value);
         if let Some(items) = unmapped_items {
             for item in items {
                 match &mut self.items[item.idx] {
@@ -622,7 +622,8 @@ impl SemanticAnalyser {
                         AddressMode::Absolute
                         | AddressMode::AbsoluteXIdx
                         | AddressMode::AbsoluteYIdx => {
-                            instr.operand = Some(value_from_byte_select(item.byte_select, value));
+                            instr.operand =
+                                Some(value_from_byte_select(item.byte_select, value.value));
                         }
                         AddressMode::Immediate
                         | AddressMode::IndirectXIdx
@@ -630,11 +631,11 @@ impl SemanticAnalyser {
                         | AddressMode::ZeroPage
                         | AddressMode::ZeroPageXIdx
                         | AddressMode::ZeroPageYIdx => {
-                            match value_from_byte_select(item.byte_select, value) {
+                            match value_from_byte_select(item.byte_select, value.value) {
                                 operand if operand > u8::MAX.into() => {
                                     let span = instr.span;
                                     self.error(
-                                        format!("Variable '{label}' exceeds 1 byte"),
+                                        format!("Variable '{}' exceeds 1 byte", ident.value),
                                         span,
                                         None,
                                     );
@@ -647,7 +648,7 @@ impl SemanticAnalyser {
                             self.error(
                                 format!(
                                     "Invalid addressing mode '{:#?}' for label reference '{}'",
-                                    other, label
+                                    other, ident.value
                                 ),
                                 span,
                                 None,
@@ -693,22 +694,19 @@ impl SemanticAnalyser {
                                 );
                             }
                         }
-                        AddressMode::Immediate => match item.byte_select {
-                            Some(ByteSelect::Low) => {
-                                instr.operand = Some(i32::from(self.address & 0x00FF))
-                            }
-                            Some(ByteSelect::High) => {
-                                instr.operand = Some(i32::from((self.address & 0xFF00) >> 8))
-                            }
-                            None => {
+                        AddressMode::Immediate => {
+                            if let Some(b) = item.byte_select {
+                                instr.operand =
+                                    Some(value_from_byte_select(Some(b), self.address.into()));
+                            } else {
                                 let span = instr.span;
                                 self.error(
-                                        format!("Address '{}' exceeds 1 byte argument size for immediate addressing", label.label),
-                                        span,
-                                        None
-                                    )
+                                    format!("Address '{}' exceeds 1 byte argument size for immediate addressing", label.label),
+                                    span,
+                                    None
+                                )
                             }
-                        },
+                        }
                         other => {
                             let span = instr.span;
                             self.error(
