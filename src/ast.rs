@@ -117,7 +117,6 @@ pub enum Operand {
     Idx,
     LBracket,
     RBracket,
-    AddrLabel(String, Option<ByteSelect>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

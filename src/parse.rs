@@ -382,7 +382,7 @@ impl<'source> Parser<'source> {
                 let value = self.parse_number();
                 self.expect_token(T![number]);
                 let id = next_node_id();
-                self.constants.insert(ident.value.clone(), id);
+                self.constants.insert(ident.value.clone(), ident.id);
                 Directive::Set {
                     id,
                     span: self.span_from(loc),
