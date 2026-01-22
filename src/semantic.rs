@@ -613,8 +613,14 @@ impl SemanticAnalyser {
                             )
                         }
                     },
-                    AnalysedItem::Word(word) => (),
-                    AnalysedItem::Byte(byte) => (),
+                    AnalysedItem::Word(word) => word.value = value.value as u16,
+                    AnalysedItem::Byte(byte) => {
+                        if value.value < 0xFF {
+                            byte.value = value.value as u8;
+                        } else {
+                            self.error(String::from("Variable exceeds 1 byte"), ident.span, None);
+                        }
+                    },
                 }
             }
         }
