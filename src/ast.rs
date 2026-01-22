@@ -64,7 +64,6 @@ pub enum ProgramItem {
     Preprocessor(Preprocessor),
     Instruction(Instruction),
     Label(Label),
-    Binary(Binary),
 }
 
 #[allow(dead_code)]
@@ -73,13 +72,6 @@ pub struct Preprocessor {
     pub id: NodeId,
     pub span: Span,
     pub directive: Directive,
-}
-
-#[derive(Debug, Clone)]
-pub enum DirectiveItem {
-    Number(Number),
-    Ident(Ident),
-    String(StringLiteral),
 }
 
 #[allow(dead_code)]
