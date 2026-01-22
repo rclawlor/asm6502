@@ -266,10 +266,7 @@ impl SemanticAnalyser {
                         if let Some(addr) = self.node_addresses.get(id) {
                             *addr as i32
                         } else {
-                            self.unknown_labels
-                                .entry(i.value.clone())
-                                .or_default()
-                                .push(UnknownLabel::new(self.items.len(), None));
+                            self.add_unknown_label(&i.value, None);
                             UNKNOWN_ADDR
                         }
                     } else {
@@ -325,7 +322,7 @@ impl SemanticAnalyser {
                 address: self.address,
                 value: 0x00,
             }));
-            self.address = self.address.saturating_add(1);
+            self.address = self.address.wrapping_add(1);
         }
     }
 
@@ -351,6 +348,13 @@ impl SemanticAnalyser {
 
     fn is_addr_label(&self, ident: &Ident) -> bool {
         self.ast.label_definitions.contains_key(&ident.value)
+    }
+
+    fn add_unknown_label(&mut self, label: &str, byte_select: Option<ByteSelect>) {
+        self.unknown_labels
+            .entry(label.to_string())
+            .or_default()
+            .push(UnknownLabel::new(self.items.len(), byte_select));
     }
 
     fn analyse_instruction(&mut self, instr: &Instruction) -> AnalysedInstruction {
@@ -402,10 +406,7 @@ impl SemanticAnalyser {
                             (m, Some(addr))
                         }
                     } else {
-                        self.unknown_labels
-                            .entry(s.value.clone())
-                            .or_default()
-                            .push(UnknownLabel::new(self.items.len(), *b));
+                        self.add_unknown_label(&s.value, *b);
                         (m, Some(UNKNOWN_ADDR))
                     }
                 } else {
@@ -419,10 +420,7 @@ impl SemanticAnalyser {
                     if let Some(addr) = self.get_definition_value(id) {
                         (AddressMode::AbsoluteXIdx, Some(addr))
                     } else {
-                        self.unknown_labels
-                            .entry(s.value.clone())
-                            .or_default()
-                            .push(UnknownLabel::new(self.items.len(), *b));
+                        self.add_unknown_label(&s.value, *b);
                         (AddressMode::AbsoluteXIdx, Some(UNKNOWN_ADDR))
                     }
                 } else {
@@ -436,10 +434,7 @@ impl SemanticAnalyser {
                     if let Some(addr) = self.get_definition_value(id) {
                         (AddressMode::AbsoluteYIdx, Some(addr))
                     } else {
-                        self.unknown_labels
-                            .entry(s.value.clone())
-                            .or_default()
-                            .push(UnknownLabel::new(self.items.len(), *b));
+                        self.add_unknown_label(&s.value, *b);
                         (AddressMode::AbsoluteYIdx, Some(UNKNOWN_ADDR))
                     }
                 } else {
@@ -483,10 +478,7 @@ impl SemanticAnalyser {
                             None => (AddressMode::Immediate, Some(addr)),
                         }
                     } else {
-                        self.unknown_labels
-                            .entry(s.value.clone())
-                            .or_default()
-                            .push(UnknownLabel::new(self.items.len(), *b));
+                        self.add_unknown_label(&s.value, *b);
                         (AddressMode::Immediate, Some(UNKNOWN_ADDR))
                     }
                 } else {
