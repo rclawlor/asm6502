@@ -153,7 +153,7 @@ fn byte_from_byte_select(byte_select: Option<ByteSelect>, value: i32) -> Option<
         Some(ByteSelect::Low) => Some(value & 0x00FF),
         Some(ByteSelect::High) => Some((value & 0xFF00) >> 8),
         None => {
-            if value < 0xFF {
+            if value <= 0xFF {
                 Some(value)
             } else {
                 None
