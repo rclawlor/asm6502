@@ -433,6 +433,29 @@ impl SemanticAnalyser {
                     (m, Some(0x0000))
                 }
             }
+            // Absolute or zero-page
+            [Operand::Ident(s, b)] => {
+                if let Some(id) = self.get_definition_id(&s.value) {
+                    if let Some(value) = self.get_definition_value(id) {
+                        match byte_from_byte_select(*b, value) {
+                            Some(byte) => (AddressMode::ZeroPage, Some(byte)),
+                            None => (AddressMode::Absolute, Some(value)),
+                        }
+                    } else {
+                        self.add_unknown_label(&s.value, *b);
+                        // TODO: this could be a zero-page address after label resolution
+                        (AddressMode::Absolute, Some(UNKNOWN_ADDR))
+                    }
+                } else {
+                    self.error(
+                        format!("Variable '{}' not found", s.value),
+                        instr.span,
+                        None,
+                    );
+                    (AddressMode::Absolute, Some(0x0000))
+                }
+            }
+
             // Absolute, X/Y-indexed with label
             [Operand::Ident(s, b), Operand::Idx, Operand::Register(reg)] => {
                 let mode = match reg {
@@ -472,7 +495,7 @@ impl SemanticAnalyser {
                 (AddressMode::Immediate, Some(value))
             }
             // Immediate
-            [Operand::Ident(s, b)] => {
+            [Operand::Immediate, Operand::Ident(s, b)] => {
                 if let Some(id) = self.get_definition_id(&s.value) {
                     if let Some(addr) = self.get_definition_value(id) {
                         let value = byte_from_byte_select(*b, addr).unwrap_or_else(|| {
@@ -513,6 +536,31 @@ impl SemanticAnalyser {
                 });
                 (AddressMode::IndirectXIdx, Some(value))
             }
+            // X-indexed, indirect
+            [Operand::LBracket, Operand::Ident(s, b), Operand::Idx, Operand::Register(Register::X), Operand::RBracket] => {
+                if let Some(id) = self.get_definition_id(&s.value) {
+                    if let Some(addr) = self.get_definition_value(id) {
+                        let value = byte_from_byte_select(*b, addr).unwrap_or_else(|| {
+                            self.error(
+                                format!(
+                                    "X-indexed, indirect mode argument cannot exceed 1 byte, got '{}'",
+                                    s.value
+                                ),
+                                s.span,
+                                None,
+                            );
+                            0x0000
+                        });
+                        (AddressMode::IndirectXIdx, Some(value))
+                    } else {
+                        self.add_unknown_label(&s.value, *b);
+                        (AddressMode::IndirectXIdx, Some(UNKNOWN_ADDR))
+                    }
+                } else {
+                    self.error(format!("Label '{}' not found", s.value), instr.span, None);
+                    (AddressMode::IndirectXIdx, Some(0x0000))
+                }
+            }
             // Y-indexed, indirect
             [Operand::LBracket, Operand::Number(n, b), Operand::RBracket, Operand::Idx, Operand::Register(Register::Y)] =>
             {
@@ -525,6 +573,31 @@ impl SemanticAnalyser {
                     0x0000
                 });
                 (AddressMode::IndirectYIdx, Some(value))
+            }
+            // Y-indexed, indirect
+            [Operand::LBracket, Operand::Ident(s, b), Operand::RBracket, Operand::Idx, Operand::Register(Register::Y)] => {
+                if let Some(id) = self.get_definition_id(&s.value) {
+                    if let Some(addr) = self.get_definition_value(id) {
+                        let value = byte_from_byte_select(*b, addr).unwrap_or_else(|| {
+                            self.error(
+                                format!(
+                                    "Y-indexed, indirect mode argument cannot exceed 1 byte, got '{}'",
+                                    s.value
+                                ),
+                                s.span,
+                                None,
+                            );
+                            0x0000
+                        });
+                        (AddressMode::IndirectYIdx, Some(value))
+                    } else {
+                        self.add_unknown_label(&s.value, *b);
+                        (AddressMode::IndirectYIdx, Some(UNKNOWN_ADDR))
+                    }
+                } else {
+                    self.error(format!("Label '{}' not found", s.value), instr.span, None);
+                    (AddressMode::IndirectYIdx, Some(0x0000))
+                }
             }
             // Zeropage, X-indexed or Absolute, X-indexed
             [Operand::Number(n, b), Operand::Idx, Operand::Register(Register::X)] => {
