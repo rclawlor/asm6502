@@ -22,6 +22,7 @@ pub enum TokenKind {
     InesprgPP, // ".inesprg"
     IneschrPP, // ".ineschr"
     InesmapPP, // ".inesmap"
+    InesmirPP, // ".inesmir"
     DbPP,      // ".db"
     DwPP,      // ".dw"
     IncbinPP,  // ".incbin"
@@ -133,6 +134,7 @@ impl<'source> Lexer<'source> {
                         "inesprg" => T![inesprg],
                         "ineschr" => T![ineschr],
                         "inesmap" => T![inesmap],
+                        "inesmir" => T![inesmir],
                         "db" => T![db],
                         "dw" => T![dw],
                         "incbin" => T![incbin],

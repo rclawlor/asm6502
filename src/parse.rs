@@ -438,6 +438,7 @@ impl<'source> Parser<'source> {
             T![inesprg]
                 | T![ineschr]
                 | T![inesmap]
+                | T![inesmir]
                 | T![db]
                 | T![dw]
                 | T![incbin]
@@ -592,5 +593,47 @@ mod tests {
             }
             _ => panic!("Expected .dw preprocessor"),
         }
+    }
+
+    #[test]
+    fn test_ines_header() {
+        let program = parse(
+            "
+            .ineschr 1
+            .inesprg 1
+            .inesmir 0
+            .inesmap 0
+        ",
+        )
+        .unwrap();
+        assert_eq!(program.items.len(), 4);
+        assert!(matches!(
+            program.items[0],
+            ProgramItem::Preprocessor(Preprocessor {
+                directive: Directive::Ineschr { .. },
+                ..
+            })
+        ));
+        assert!(matches!(
+            program.items[1],
+            ProgramItem::Preprocessor(Preprocessor {
+                directive: Directive::Inesprg { .. },
+                ..
+            })
+        ));
+        assert!(matches!(
+            program.items[2],
+            ProgramItem::Preprocessor(Preprocessor {
+                directive: Directive::Inesmir { .. },
+                ..
+            })
+        ));
+        assert!(matches!(
+            program.items[3],
+            ProgramItem::Preprocessor(Preprocessor {
+                directive: Directive::Inesmap { .. },
+                ..
+            })
+        ));
     }
 }
