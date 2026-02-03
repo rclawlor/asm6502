@@ -1,21 +1,34 @@
+//! A 6502 assembly lexer
+//!
+//! The [`Lexer`] struct converts text to a series of [`Token`]s
+
 use std::str::CharIndices;
 
 use phf::phf_map;
 use unicode_ident::{is_xid_continue, is_xid_start};
 
-use crate::{
-    ast::{Directive, Span},
-    parse::capitalise,
-};
+use crate::{ast::Span, T};
 
+/// `TokenKind` enum lists each token expected in a 6502 assembly file
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TokenKind {
     // Keywords
-    Opcode,       // e.g. LDA
-    RegisterA,    // "A"
-    RegisterX,    // "X"
-    RegisterY,    // "Y"
-    Preprocessor, // e.g. .include
+    Opcode,    // e.g. LDA
+    RegisterA, // "A"
+    RegisterX, // "X"
+    RegisterY, // "Y"
+
+    // Preprocessors
+    InesprgPP, // ".inesprg"
+    IneschrPP, // ".ineschr"
+    InesmapPP, // ".inesmap"
+    InesmirPP, // ".inesmir"
+    DbPP,      // ".db"
+    DwPP,      // ".dw"
+    IncbinPP,  // ".incbin"
+    PadPP,     // ".pad"
+    OrgPP,     // ".org"
+    SetPP,     // ".set"
 
     // Delimiters
     Comma,        // ","
@@ -39,6 +52,7 @@ pub enum TokenKind {
     Eof,
 }
 
+/// Wrapper for [`TokenKind`] to give source text and [`Span`] information
 #[derive(Debug, Clone)]
 pub struct Token<'source> {
     pub kind: TokenKind,
@@ -46,6 +60,7 @@ pub struct Token<'source> {
     pub span: Span,
 }
 
+/// Hand-coded 6502 assembly lexer
 pub struct Lexer<'source> {
     source: &'source str,
     iter: CharIndices<'source>,
@@ -55,7 +70,7 @@ pub struct Lexer<'source> {
 }
 
 impl<'source> Lexer<'source> {
-    /// Create a new Lexer instance
+    /// Create a new `Lexer` instance
     pub fn new(source: &'source str) -> Self {
         let mut lexer = Self {
             source,
@@ -76,7 +91,7 @@ impl<'source> Lexer<'source> {
 
             if self.at_end() {
                 return Token {
-                    kind: TokenKind::Eof,
+                    kind: T![eof],
                     text: "",
                     span: Span {
                         start: self.source.len(),
@@ -89,13 +104,13 @@ impl<'source> Lexer<'source> {
 
             let token_kind = match self.next_char() {
                 // Single-character tokens
-                ',' => TokenKind::Comma,
-                '(' => TokenKind::LeftBracket,
-                ')' => TokenKind::RightBracket,
-                ':' => TokenKind::Colon,
-                '#' => TokenKind::Hash,
-                '<' => TokenKind::LessThan,
-                '>' => TokenKind::GreaterThan,
+                ',' => T![,],
+                '(' => T!['('],
+                ')' => T![')'],
+                ':' => T![:],
+                '#' => T![#],
+                '<' => T![<],
+                '>' => T![>],
 
                 // Comment
                 ';' => {
@@ -112,13 +127,21 @@ impl<'source> Lexer<'source> {
                         self.advance();
                     }
 
-                    let text = &self.source[start_pos..self.pos]
+                    let text = self.source[start_pos..self.pos]
                         .strip_prefix('.')
                         .expect("Already checked to start with '.' above");
-                    if Directive::is_directive(&capitalise(text)) {
-                        TokenKind::Preprocessor
-                    } else {
-                        TokenKind::InvalidToken
+                    match text.to_ascii_lowercase().as_str() {
+                        "inesprg" => T![inesprg],
+                        "ineschr" => T![ineschr],
+                        "inesmap" => T![inesmap],
+                        "inesmir" => T![inesmir],
+                        "db" => T![db],
+                        "dw" => T![dw],
+                        "incbin" => T![incbin],
+                        "pad" => T![pad],
+                        "org" => T![org],
+                        "set" => T![set],
+                        _ => TokenKind::InvalidToken,
                     }
                 }
 
@@ -134,7 +157,7 @@ impl<'source> Lexer<'source> {
                     }
                     self.advance();
 
-                    TokenKind::String
+                    T![string]
                 }
 
                 // Numbers
@@ -145,7 +168,7 @@ impl<'source> Lexer<'source> {
                     while self.peek_char().is_ascii_hexdigit() || self.peek_char() == 'x' {
                         self.advance();
                     }
-                    TokenKind::Number
+                    T![number]
                 }
 
                 // Keywords
@@ -156,10 +179,10 @@ impl<'source> Lexer<'source> {
 
                     if self.peek_char() == ':' {
                         self.advance();
-                        TokenKind::Label
+                        T![label]
                     } else {
                         let text = &self.source[start_pos..self.pos].to_ascii_uppercase();
-                        KEYWORDS.get(text).copied().unwrap_or(TokenKind::Ident)
+                        KEYWORDS.get(text).copied().unwrap_or(T![ident])
                     }
                 }
 
@@ -179,7 +202,7 @@ impl<'source> Lexer<'source> {
         }
     }
 
-    /// Skip all whitespace characters
+    /// Skip whitespace characters until next token
     fn skip_whitespace(&mut self) {
         if self.peek_char() == '\n' {
             self.line += 1;
@@ -218,10 +241,43 @@ impl<'source> Lexer<'source> {
     }
 }
 
+/// More readable syntax to describe [`TokenKind`]
+#[macro_export]
+macro_rules ! T {
+    [A] => { $ crate::lex::TokenKind::RegisterA };
+    [X] => { $ crate::lex::TokenKind::RegisterX };
+    [Y] => { $ crate::lex::TokenKind::RegisterY };
+    [,] => { $ crate::lex::TokenKind::Comma };
+    ['('] => { $ crate::lex::TokenKind::LeftBracket };
+    [')'] => { $ crate::lex::TokenKind::RightBracket };
+    [number] => { $ crate::lex::TokenKind::Number };
+    [ident] => { $ crate::lex::TokenKind::Ident };
+    [string] => { $ crate::lex::TokenKind::String };
+    [label] => { $ crate::lex::TokenKind::Label };
+    [opcode] => { $ crate::lex::TokenKind::Opcode };
+    [#] => { $ crate::lex::TokenKind::Hash };
+    [:] => { $ crate::lex::TokenKind::Colon };
+    [<] => { $ crate::lex::TokenKind::LessThan };
+    [>] => { $ crate::lex::TokenKind::GreaterThan };
+    [invalid] => { $ crate::lex::TokenKind::InvalidToken };
+    [eof] => { $ crate::lex::TokenKind::Eof };
+    [inesprg] => { $ crate::lex::TokenKind::InesprgPP };
+    [ineschr] => { $ crate::lex::TokenKind::IneschrPP };
+    [inesmap] => { $ crate::lex::TokenKind::InesmapPP };
+    [inesmir] => { $ crate::lex::TokenKind::InesmirPP };
+    [db] => { $ crate::lex::TokenKind::DbPP };
+    [dw] => { $ crate::lex::TokenKind::DwPP };
+    [incbin] => { $ crate::lex::TokenKind::IncbinPP };
+    [pad] => { $ crate::lex::TokenKind::PadPP };
+    [org] => { $ crate::lex::TokenKind::OrgPP };
+    [set] => { $ crate::lex::TokenKind::SetPP };
+}
+
+/// Map keyword text to corresponding [`TokenKind`]
 static KEYWORDS: phf::Map<&'static str, TokenKind> = phf_map! {
-    "A" => TokenKind::RegisterA,
-    "X" => TokenKind::RegisterX,
-    "Y" => TokenKind::RegisterY,
+    "A" => T![A],
+    "X" => T![X],
+    "Y" => T![Y],
     "ADC" | "AND" | "ASL" |
     "BCC" | "BCS" | "BEQ" |
     "BIT" | "BMI" | "BNE" |
@@ -240,7 +296,7 @@ static KEYWORDS: phf::Map<&'static str, TokenKind> = phf_map! {
     "SED" | "SEI" | "STA" |
     "STX" | "STY" | "TAX" |
     "TAY" | "TSX" | "TXA" |
-    "TXS" | "TYA" => TokenKind::Opcode,
+    "TXS" | "TYA" => T![opcode],
 };
 
 #[cfg(test)]
@@ -252,7 +308,7 @@ mod tests {
         let mut tokens = Vec::new();
         loop {
             let token = lexer.next_token();
-            let is_eof = token.kind == TokenKind::Eof;
+            let is_eof = token.kind == T![eof];
             tokens.push(token);
             if is_eof {
                 break;
@@ -265,80 +321,95 @@ mod tests {
     fn test_empty() {
         let tokens = lex("");
         assert_eq!(tokens.len(), 1);
-        assert_eq!(tokens[0].kind, TokenKind::Eof);
+        assert_eq!(tokens[0].kind, T![eof]);
     }
 
     #[test]
     fn test_whitespace_only() {
         let tokens = lex("  \t\n\r ");
         assert_eq!(tokens.len(), 1);
-        assert_eq!(tokens[0].kind, TokenKind::Eof);
+        assert_eq!(tokens[0].kind, T![eof]);
     }
 
     #[test]
     fn test_single_char_tokens() {
         let tokens = lex(":(),#<>");
         assert_eq!(tokens.len(), 7 + 1);
-        assert_eq!(tokens[0].kind, TokenKind::Colon);
-        assert_eq!(tokens[1].kind, TokenKind::LeftBracket);
-        assert_eq!(tokens[2].kind, TokenKind::RightBracket);
-        assert_eq!(tokens[3].kind, TokenKind::Comma);
-        assert_eq!(tokens[4].kind, TokenKind::Hash);
-        assert_eq!(tokens[5].kind, TokenKind::LessThan);
-        assert_eq!(tokens[6].kind, TokenKind::GreaterThan);
-        assert_eq!(tokens[7].kind, TokenKind::Eof);
+        assert_eq!(tokens[0].kind, T![:]);
+        assert_eq!(tokens[1].kind, T!['(']);
+        assert_eq!(tokens[2].kind, T![')']);
+        assert_eq!(tokens[3].kind, T![,]);
+        assert_eq!(tokens[4].kind, T![#]);
+        assert_eq!(tokens[5].kind, T![<]);
+        assert_eq!(tokens[6].kind, T![>]);
+        assert_eq!(tokens[7].kind, T![eof]);
     }
 
     #[test]
     fn test_keywords() {
         let tokens = lex("A X Y ADC LDA TXA");
         assert_eq!(tokens.len(), 6 + 1);
-        assert_eq!(tokens[0].kind, TokenKind::RegisterA);
-        assert_eq!(tokens[1].kind, TokenKind::RegisterX);
-        assert_eq!(tokens[2].kind, TokenKind::RegisterY);
-        assert_eq!(tokens[3].kind, TokenKind::Opcode);
-        assert_eq!(tokens[4].kind, TokenKind::Opcode);
-        assert_eq!(tokens[5].kind, TokenKind::Opcode);
-        assert_eq!(tokens[6].kind, TokenKind::Eof);
+        assert_eq!(tokens[0].kind, T![A]);
+        assert_eq!(tokens[1].kind, T![X]);
+        assert_eq!(tokens[2].kind, T![Y]);
+        assert_eq!(tokens[3].kind, T![opcode]);
+        assert_eq!(tokens[4].kind, T![opcode]);
+        assert_eq!(tokens[5].kind, T![opcode]);
+        assert_eq!(tokens[6].kind, T![eof]);
     }
 
     #[test]
     fn test_numbers() {
         let tokens = lex("0 $F0 %101 234 $10 $FF10");
         assert_eq!(tokens.len(), 6 + 1);
-        assert_eq!(tokens[0].kind, TokenKind::Number);
+        assert_eq!(tokens[0].kind, T![number]);
         assert_eq!(tokens[0].text, "0");
-        assert_eq!(tokens[1].kind, TokenKind::Number);
+        assert_eq!(tokens[1].kind, T![number]);
         assert_eq!(tokens[1].text, "$F0");
-        assert_eq!(tokens[2].kind, TokenKind::Number);
+        assert_eq!(tokens[2].kind, T![number]);
         assert_eq!(tokens[2].text, "%101");
-        assert_eq!(tokens[3].kind, TokenKind::Number);
+        assert_eq!(tokens[3].kind, T![number]);
         assert_eq!(tokens[3].text, "234");
-        assert_eq!(tokens[4].kind, TokenKind::Number);
+        assert_eq!(tokens[4].kind, T![number]);
         assert_eq!(tokens[4].text, "$10");
-        assert_eq!(tokens[5].kind, TokenKind::Number);
+        assert_eq!(tokens[5].kind, T![number]);
         assert_eq!(tokens[5].text, "$FF10");
-        assert_eq!(tokens[6].kind, TokenKind::Eof);
+        assert_eq!(tokens[6].kind, T![eof]);
     }
 
     #[test]
     fn test_preprocessor() {
-        let tokens = lex(".set .org .inesmap .ineschr");
-        assert_eq!(tokens.len(), 4 + 1);
-        assert_eq!(tokens[0].kind, TokenKind::Preprocessor);
-        assert_eq!(tokens[1].kind, TokenKind::Preprocessor);
-        assert_eq!(tokens[2].kind, TokenKind::Preprocessor);
-        assert_eq!(tokens[3].kind, TokenKind::Preprocessor);
-        assert_eq!(tokens[4].kind, TokenKind::Eof);
+        let tokens = lex("
+            .inesprg
+            .ineschr
+            .inesmap
+            .db
+            .dw
+            .incbin
+            .pad
+            .org
+            .set
+        ");
+        assert_eq!(tokens.len(), 9 + 1);
+        assert_eq!(tokens[0].kind, T![inesprg]);
+        assert_eq!(tokens[1].kind, T![ineschr]);
+        assert_eq!(tokens[2].kind, T![inesmap]);
+        assert_eq!(tokens[3].kind, T![db]);
+        assert_eq!(tokens[4].kind, T![dw]);
+        assert_eq!(tokens[5].kind, T![incbin]);
+        assert_eq!(tokens[6].kind, T![pad]);
+        assert_eq!(tokens[7].kind, T![org]);
+        assert_eq!(tokens[8].kind, T![set]);
+        assert_eq!(tokens[9].kind, T![eof]);
     }
 
     #[test]
     fn test_string() {
         let tokens = lex("\"Hello\" 'filename/test' \"Test \\\'test\\\'\" ");
         assert_eq!(tokens.len(), 3 + 1);
-        assert_eq!(tokens[0].kind, TokenKind::String);
-        assert_eq!(tokens[1].kind, TokenKind::String);
-        assert_eq!(tokens[2].kind, TokenKind::String);
-        assert_eq!(tokens[3].kind, TokenKind::Eof);
+        assert_eq!(tokens[0].kind, T![string]);
+        assert_eq!(tokens[1].kind, T![string]);
+        assert_eq!(tokens[2].kind, T![string]);
+        assert_eq!(tokens[3].kind, T![eof]);
     }
 }

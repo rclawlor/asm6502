@@ -1,16 +1,20 @@
-use std::{collections::HashSet, str::FromStr, sync::atomic::AtomicUsize};
+//! Contains the AST node types generated during parsing
+
+use std::{collections::HashMap, str::FromStr, sync::atomic::AtomicUsize};
 
 use strum::{AsRefStr, EnumString, IntoStaticStr};
 
 use crate::{
     lex::TokenKind,
     semantic::{AddressMode, INSTRUCTION_SET},
+    T,
 };
 
 /// ID of AST node
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NodeId(usize);
 
+/// Used to track what AST node IDs have been used
 static NEXT_NODE_ID: AtomicUsize = AtomicUsize::new(0);
 
 /// Get next available AST node ID
@@ -25,6 +29,7 @@ pub struct Span {
     pub end: usize,
 }
 
+/// Data required to generate an iNES header for emulators
 #[derive(Debug, Clone)]
 pub struct INesHeader {
     pub prg_size_16kb: u8,
@@ -50,7 +55,8 @@ pub struct Program {
     pub id: NodeId,
     pub span: Span,
     pub items: Vec<ProgramItem>,
-    pub labels: HashSet<String>,
+    pub label_definitions: HashMap<String, NodeId>,
+    pub constant_definitions: HashMap<String, NodeId>,
 }
 
 #[derive(Debug, Clone)]
@@ -58,7 +64,6 @@ pub enum ProgramItem {
     Preprocessor(Preprocessor),
     Instruction(Instruction),
     Label(Label),
-    Binary(Binary),
 }
 
 #[allow(dead_code)]
@@ -67,14 +72,6 @@ pub struct Preprocessor {
     pub id: NodeId,
     pub span: Span,
     pub directive: Directive,
-    pub args: Vec<DirectiveItem>,
-}
-
-#[derive(Debug, Clone)]
-pub enum DirectiveItem {
-    Number(Number),
-    Ident(Ident),
-    String(StringLiteral),
 }
 
 #[allow(dead_code)]
@@ -112,7 +109,6 @@ pub enum Operand {
     Idx,
     LBracket,
     RBracket,
-    AddrLabel(String, Option<ByteSelect>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -131,16 +127,16 @@ pub enum Register {
 impl Register {
     pub fn from_token(token: TokenKind) -> Option<Register> {
         match token {
-            TokenKind::RegisterA => Some(Register::A),
-            TokenKind::RegisterX => Some(Register::X),
-            TokenKind::RegisterY => Some(Register::Y),
+            T![A] => Some(Register::A),
+            T![X] => Some(Register::X),
+            T![Y] => Some(Register::Y),
             _ => None,
         }
     }
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Number {
     pub id: NodeId,
     pub span: Span,
@@ -148,7 +144,7 @@ pub struct Number {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ident {
     pub id: NodeId,
     pub span: Span,
@@ -163,26 +159,69 @@ pub struct StringLiteral {
     pub value: String,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, EnumString, IntoStaticStr)]
+#[derive(Debug, Clone)]
+pub enum ValueExpr {
+    Number(Number),
+    Ident(Ident),
+}
+
+#[allow(unused)]
+#[derive(Clone, Debug)]
 pub enum Directive {
-    Inesprg,
-    Ineschr,
-    Inesmap,
-    Inesmir,
-    Db,
-    Dw,
-    Incbin,
-    Pad,
-    Org,
-    Set,
+    Inesprg {
+        id: NodeId,
+        span: Span,
+        size: Number,
+    },
+    Ineschr {
+        id: NodeId,
+        span: Span,
+        size: Number,
+    },
+    Inesmap {
+        id: NodeId,
+        span: Span,
+        map: Number,
+    },
+    Inesmir {
+        id: NodeId,
+        span: Span,
+        mirror: Number,
+    },
+    Db {
+        id: NodeId,
+        span: Span,
+        bytes: Vec<ValueExpr>,
+    },
+    Dw {
+        id: NodeId,
+        span: Span,
+        words: Vec<ValueExpr>,
+    },
+    Incbin {
+        id: NodeId,
+        span: Span,
+        filename: StringLiteral,
+    },
+    Pad {
+        id: NodeId,
+        span: Span,
+        target_addr: Number,
+    },
+    Org {
+        id: NodeId,
+        span: Span,
+        address: Number,
+    },
+    Set {
+        id: NodeId,
+        span: Span,
+        ident: Ident,
+        value: Number,
+    },
 }
 
-impl Directive {
-    pub fn is_directive(s: &str) -> bool {
-        Directive::from_str(s).is_ok()
-    }
-}
-
+/// All opcodes in the 6502 (excludes illegal opcodes)
 #[derive(AsRefStr, Clone, Copy, Debug, Hash, PartialEq, Eq, EnumString, IntoStaticStr)]
 pub enum Opcode {
     /// Add with Carry

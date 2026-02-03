@@ -1,9 +1,14 @@
-use std::{collections::HashSet, str::FromStr};
+//! A 6502 assembly parser
+//!
+//! See [`Parser`] for details
+
+use std::{collections::HashMap, str::FromStr};
 
 use crate::{
     ast::*,
     error::CompileError,
     lex::{Lexer, Token, TokenKind},
+    T,
 };
 
 /// Parse source file
@@ -32,15 +37,24 @@ pub fn capitalise(s: &str) -> String {
         .collect()
 }
 
+/// 6502 assembly parser
+///
+/// Parses tokens generated from the [`Lexer`] and generates AST
+/// nodes found in [`crate::ast`].
+///
+/// If the parser encounters any invalid syntax it will append a
+/// [`CompileError`] but continue parsing until the file is finished.
 struct Parser<'source> {
     lexer: Lexer<'source>,
     current: Token<'source>,
     previous: Token<'source>,
-    labels: HashSet<String>,
+    labels: HashMap<String, NodeId>,
+    constants: HashMap<String, NodeId>,
     errors: Vec<CompileError>,
 }
 
 impl<'source> Parser<'source> {
+    /// Create a new `Parser` instance
     fn new(source: &'source str) -> Self {
         let mut lexer = Lexer::new(source);
         let current = lexer.next_token();
@@ -50,11 +64,14 @@ impl<'source> Parser<'source> {
             lexer,
             current,
             previous,
-            labels: HashSet::new(),
+            labels: HashMap::new(),
+            constants: HashMap::new(),
             errors: Vec::new(),
         }
     }
 
+    /// Parse the source file and generate a [`Program`], containing
+    /// a vec of AST nodes and unresolved labels
     fn parse_program(&mut self) -> Program {
         let start_loc = self.current.span;
         let mut items = Vec::new();
@@ -75,10 +92,12 @@ impl<'source> Parser<'source> {
             id: next_node_id(),
             span: self.span_from(start_loc),
             items,
-            labels: self.labels.clone(),
+            label_definitions: self.labels.clone(),
+            constant_definitions: self.constants.clone(),
         }
     }
 
+    /// Consume `TokenKind` if present, otherwise append a new `CompileError`
     fn expect_token(&mut self, kind: TokenKind) {
         if self.check(kind) {
             self.advance();
@@ -104,10 +123,10 @@ impl<'source> Parser<'source> {
 
     /// Check if at end of file
     fn at_end(&self) -> bool {
-        self.current.kind == TokenKind::Eof
+        self.current.kind == T![eof]
     }
 
-    /// Get span relative to starting span
+    /// Get span from starting span to current
     fn span_from(&self, start: Span) -> Span {
         Span {
             start: start.start,
@@ -134,12 +153,12 @@ impl<'source> Parser<'source> {
             self.error(format!("Invalid opcode: {}", self.current.text), loc, None);
             Opcode::Adc
         };
-        self.expect_token(TokenKind::Opcode);
+        self.expect_token(T![opcode]);
         let mut operands = Vec::new();
         let mut byte_select = None;
         loop {
             match self.current.kind {
-                TokenKind::RegisterA | TokenKind::RegisterX | TokenKind::RegisterY => {
+                T![A] | T![X] | T![Y] => {
                     let register = if let Some(register) = Register::from_token(self.current.kind) {
                         register
                     } else {
@@ -151,37 +170,18 @@ impl<'source> Parser<'source> {
                         Register::A
                     };
                     operands.push(Operand::Register(register));
-                    self.advance();
                 }
-                TokenKind::Hash => {
-                    operands.push(Operand::Immediate);
-                    self.advance();
-                }
-                TokenKind::Comma => {
-                    operands.push(Operand::Idx);
-                    self.advance();
-                }
-                TokenKind::LeftBracket => {
-                    operands.push(Operand::LBracket);
-                    self.advance();
-                }
-                TokenKind::RightBracket => {
-                    operands.push(Operand::RBracket);
-                    self.advance();
-                }
-                TokenKind::LessThan => {
-                    byte_select = Some(ByteSelect::Low);
-                    self.advance();
-                }
-                TokenKind::GreaterThan => {
-                    byte_select = Some(ByteSelect::High);
-                    self.advance();
-                }
-                TokenKind::Ident => {
+                T![#] => operands.push(Operand::Immediate),
+                T![,] => operands.push(Operand::Idx),
+                T!['('] => operands.push(Operand::LBracket),
+                T![')'] => operands.push(Operand::RBracket),
+                T![<] => byte_select = Some(ByteSelect::Low),
+                T![>] => byte_select = Some(ByteSelect::High),
+                T![ident] => {
                     operands.push(Operand::Ident(self.parse_ident(), byte_select));
                     byte_select = None;
                 }
-                TokenKind::Number => {
+                T![number] => {
                     operands.push(Operand::Number(self.parse_number(), byte_select));
                     byte_select = None;
                 }
@@ -189,6 +189,7 @@ impl<'source> Parser<'source> {
                     break;
                 }
             }
+            self.advance();
         }
 
         Instruction {
@@ -199,6 +200,9 @@ impl<'source> Parser<'source> {
         }
     }
 
+    /// Parse a number
+    ///
+    /// Supports hex, binary and decimal number representations
     fn parse_number(&mut self) -> Number {
         let loc = self.current.span;
         let base = match &self.current.text.chars().next() {
@@ -229,7 +233,6 @@ impl<'source> Parser<'source> {
             );
             0
         };
-        self.expect_token(TokenKind::Number);
 
         Number {
             id: next_node_id(),
@@ -242,7 +245,6 @@ impl<'source> Parser<'source> {
     fn parse_ident(&mut self) -> Ident {
         let loc = self.current.span;
         let name = self.current.text.to_string();
-        self.expect_token(TokenKind::Ident);
 
         Ident {
             id: next_node_id(),
@@ -255,7 +257,6 @@ impl<'source> Parser<'source> {
     fn parse_string(&mut self) -> StringLiteral {
         let loc = self.current.span;
         let mut value = self.current.text.to_string();
-        self.expect_token(TokenKind::String);
         // Remove string identifiers
         value = value.trim_matches(|c| c == '"' || c == '\'').to_string();
 
@@ -269,61 +270,186 @@ impl<'source> Parser<'source> {
     /// Parse preprocessor and operands
     fn parse_preprocessor(&mut self) -> Preprocessor {
         let loc = self.current.span;
-        let key = capitalise(self.current.text.strip_prefix('.').unwrap());
-        let directive = if let Ok(directive) = Directive::from_str(key.as_str()) {
-            directive
-        } else {
-            self.error(
-                format!("Invalid directive: {}", self.current.text),
-                loc,
-                None,
-            );
-            Directive::Set
-        };
-        self.expect_token(TokenKind::Preprocessor);
-        let mut args = Vec::new();
-        while !self.lexer.at_end() {
-            match self.current.kind {
-                TokenKind::Ident => args.push(DirectiveItem::Ident(self.parse_ident())),
-                TokenKind::Number => args.push(DirectiveItem::Number(self.parse_number())),
-                TokenKind::String => args.push(DirectiveItem::String(self.parse_string())),
-                TokenKind::Comma => self.advance(),
-                _ => break,
+        let key = self
+            .current
+            .text
+            .strip_prefix('.')
+            .unwrap()
+            .to_ascii_lowercase();
+
+        self.advance();
+        let directive = match key.as_str() {
+            "inesprg" => {
+                let size = self.parse_number();
+                self.expect_token(T![number]);
+                Directive::Inesprg {
+                    id: next_node_id(),
+                    span: self.span_from(loc),
+                    size,
+                }
             }
-        }
+            "ineschr" => {
+                let size = self.parse_number();
+                self.expect_token(T![number]);
+                Directive::Ineschr {
+                    id: next_node_id(),
+                    span: self.span_from(loc),
+                    size,
+                }
+            }
+            "inesmap" => {
+                let map = self.parse_number();
+                self.expect_token(T![number]);
+                Directive::Inesmap {
+                    id: next_node_id(),
+                    span: self.span_from(loc),
+                    map,
+                }
+            }
+            "inesmir" => {
+                let mirror = self.parse_number();
+                self.expect_token(T![number]);
+                Directive::Inesmir {
+                    id: next_node_id(),
+                    span: self.span_from(loc),
+                    mirror,
+                }
+            }
+            "db" => {
+                let mut bytes = Vec::new();
+                while !self.lexer.at_end() {
+                    match self.current.kind {
+                        T![ident] => bytes.push(ValueExpr::Ident(self.parse_ident())),
+                        T![number] => bytes.push(ValueExpr::Number(self.parse_number())),
+                        T![,] => (),
+                        _ => break,
+                    }
+                    self.advance();
+                }
+                Directive::Db {
+                    id: next_node_id(),
+                    span: self.span_from(loc),
+                    bytes,
+                }
+            }
+            "dw" => {
+                let mut words = Vec::new();
+                while !self.lexer.at_end() {
+                    match self.current.kind {
+                        T![ident] => words.push(ValueExpr::Ident(self.parse_ident())),
+                        T![number] => words.push(ValueExpr::Number(self.parse_number())),
+                        T![,] => (),
+                        _ => break,
+                    }
+                    self.advance();
+                }
+                Directive::Dw {
+                    id: next_node_id(),
+                    span: self.span_from(loc),
+                    words,
+                }
+            }
+            "incbin" => {
+                let filename = self.parse_string();
+                self.expect_token(T![string]);
+                Directive::Incbin {
+                    id: next_node_id(),
+                    span: self.span_from(loc),
+                    filename,
+                }
+            }
+            "pad" => {
+                let target_addr = self.parse_number();
+                self.expect_token(T![number]);
+                Directive::Pad {
+                    id: next_node_id(),
+                    span: self.span_from(loc),
+                    target_addr,
+                }
+            }
+            "org" => {
+                let address = self.parse_number();
+                self.expect_token(T![number]);
+                Directive::Org {
+                    id: next_node_id(),
+                    span: self.span_from(loc),
+                    address,
+                }
+            }
+            "set" => {
+                let ident = self.parse_ident();
+                self.expect_token(T![ident]);
+                let value = self.parse_number();
+                self.expect_token(T![number]);
+                let id = next_node_id();
+                self.constants.insert(ident.value.clone(), ident.id);
+                Directive::Set {
+                    id,
+                    span: self.span_from(loc),
+                    ident,
+                    value,
+                }
+            }
+            other => {
+                self.error(
+                    format!("Unrecognised preprocessor: {other}"),
+                    self.span_from(loc),
+                    None,
+                );
+                self.advance();
+                Directive::Db {
+                    id: next_node_id(),
+                    span: self.span_from(loc),
+                    bytes: Vec::new(),
+                }
+            }
+        };
 
         Preprocessor {
             id: next_node_id(),
             span: self.span_from(loc),
             directive,
-            args,
         }
     }
 
+    /// Parse address label
     fn parse_label(&mut self) -> Label {
         let loc = self.current.span;
         let label = self.current.text.strip_suffix(':').unwrap();
-        self.labels.insert(label.to_string());
+        let id = next_node_id();
+        self.labels.insert(label.to_string(), id);
 
-        self.expect_token(TokenKind::Label);
+        self.expect_token(T![label]);
 
         Label {
-            id: next_node_id(),
+            id,
             span: loc,
             label: label.to_string(),
         }
     }
 
     fn is_opcode(&self) -> bool {
-        self.current.kind == TokenKind::Opcode
+        self.current.kind == T![opcode]
     }
 
     fn is_preprocessor(&self) -> bool {
-        self.current.kind == TokenKind::Preprocessor
+        matches!(
+            self.current.kind,
+            T![inesprg]
+                | T![ineschr]
+                | T![inesmap]
+                | T![inesmir]
+                | T![db]
+                | T![dw]
+                | T![incbin]
+                | T![pad]
+                | T![org]
+                | T![set]
+        )
     }
 
     fn is_label(&self) -> bool {
-        self.current.kind == TokenKind::Label
+        self.current.kind == T![label]
     }
 }
 
@@ -449,17 +575,65 @@ mod tests {
         assert_eq!(program.items.len(), 2);
         match program.items.first() {
             Some(ProgramItem::Preprocessor(pp)) => {
-                assert_eq!(pp.directive, Directive::Db);
-                assert_eq!(pp.args.len(), 2);
+                if let Directive::Db { bytes, .. } = &pp.directive {
+                    assert_eq!(bytes.len(), 2);
+                } else {
+                    panic!("Expected .db directive");
+                }
             }
             _ => panic!("Expected .db preprocessor"),
         }
         match program.items.get(1) {
             Some(ProgramItem::Preprocessor(pp)) => {
-                assert_eq!(pp.directive, Directive::Dw);
-                assert_eq!(pp.args.len(), 2);
+                if let Directive::Dw { words, .. } = &pp.directive {
+                    assert_eq!(words.len(), 2);
+                } else {
+                    panic!("Expected .db directive");
+                }
             }
             _ => panic!("Expected .dw preprocessor"),
         }
+    }
+
+    #[test]
+    fn test_ines_header() {
+        let program = parse(
+            "
+            .ineschr 1
+            .inesprg 1
+            .inesmir 0
+            .inesmap 0
+        ",
+        )
+        .unwrap();
+        assert_eq!(program.items.len(), 4);
+        assert!(matches!(
+            program.items[0],
+            ProgramItem::Preprocessor(Preprocessor {
+                directive: Directive::Ineschr { .. },
+                ..
+            })
+        ));
+        assert!(matches!(
+            program.items[1],
+            ProgramItem::Preprocessor(Preprocessor {
+                directive: Directive::Inesprg { .. },
+                ..
+            })
+        ));
+        assert!(matches!(
+            program.items[2],
+            ProgramItem::Preprocessor(Preprocessor {
+                directive: Directive::Inesmir { .. },
+                ..
+            })
+        ));
+        assert!(matches!(
+            program.items[3],
+            ProgramItem::Preprocessor(Preprocessor {
+                directive: Directive::Inesmap { .. },
+                ..
+            })
+        ));
     }
 }
