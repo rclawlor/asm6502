@@ -165,6 +165,7 @@ pub enum ValueExpr {
     Ident(Ident),
 }
 
+#[allow(unused)]
 #[derive(Clone, Debug)]
 pub enum Directive {
     Inesprg {

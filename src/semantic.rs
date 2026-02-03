@@ -215,8 +215,12 @@ impl SemanticAnalyser {
                     self.items.push(AnalysedItem::Instruction(i));
                 }
                 ProgramItem::Preprocessor(pp) => match pp.directive {
-                    Directive::Inesprg { size, .. } => header.prg_size_16kb = self.try_as_byte(&size),
-                    Directive::Ineschr { size, .. } => header.chr_size_16kb = self.try_as_byte(&size),
+                    Directive::Inesprg { size, .. } => {
+                        header.prg_size_16kb = self.try_as_byte(&size)
+                    }
+                    Directive::Ineschr { size, .. } => {
+                        header.chr_size_16kb = self.try_as_byte(&size)
+                    }
                     Directive::Inesmap { map, .. } => header.mapper = self.try_as_byte(&map),
                     Directive::Inesmir { mirror, .. } => header.mirror = self.try_as_byte(&mirror),
                     Directive::Org { address, .. } => {
@@ -247,7 +251,11 @@ impl SemanticAnalyser {
                         let binary = match std::fs::read(&filename.value) {
                             Ok(b) => b,
                             Err(_) => {
-                                self.error(format!("Unable to read file '{}'", filename.value), filename.span, None);
+                                self.error(
+                                    format!("Unable to read file '{}'", filename.value),
+                                    filename.span,
+                                    None,
+                                );
                                 Vec::new()
                             }
                         };
@@ -497,9 +505,7 @@ impl SemanticAnalyser {
             {
                 let value = byte_from_byte_select(*b, n.value).unwrap_or_else(|| {
                     self.error(
-                        String::from(
-                            "X-indexed, indirect mode argument cannot exceed 1 byte",
-                        ),
+                        String::from("X-indexed, indirect mode argument cannot exceed 1 byte"),
                         n.span,
                         None,
                     );
@@ -512,9 +518,7 @@ impl SemanticAnalyser {
             {
                 let value = byte_from_byte_select(*b, n.value).unwrap_or_else(|| {
                     self.error(
-                        String::from(
-                            "Y-indexed, indirect mode argument cannot exceed 1 byte",
-                        ),
+                        String::from("Y-indexed, indirect mode argument cannot exceed 1 byte"),
                         n.span,
                         None,
                     );
@@ -620,7 +624,7 @@ impl SemanticAnalyser {
                         } else {
                             self.error(String::from("Variable exceeds 1 byte"), ident.span, None);
                         }
-                    },
+                    }
                 }
             }
         }
